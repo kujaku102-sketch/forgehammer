@@ -1,0 +1,9 @@
+[package]
+name = "forge_tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tusk_harvester = { path = "../harvester" }
+hammer = { path = "../hammer" }
+blade = { path = "../blade" }

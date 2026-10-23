@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/blade","crates/hammer",
+members = ["crates/blade", "crates/forge_tui","crates/hammer",
     "crates/harvester",
 ]
 resolver = "2"
