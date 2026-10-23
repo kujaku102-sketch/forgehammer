@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["crates/blade","crates/hammer",
     "crates/harvester",
 ]
 resolver = "2"
