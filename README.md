@@ -12,6 +12,13 @@ High-throughput, zero-allocation policy distillation and ultra-fast decision eng
 
 ---
 
+## ドキュメント
+
+- **[取扱説明書 (docs/MANUAL.md)](docs/MANUAL.md)**: アーキテクチャ解説、自作ゲーム組み込み手順、操作方法
+- **[詳細仕様書 (docs/SPEC-042-CPU-FORGE-BLUEPRINT.md)](docs/SPEC-042-CPU-FORGE-BLUEPRINT.md)**: 原初設計ブループリント
+
+---
+
 ## 4大構成要素
 
 1. **[16多重 並列採掘機] Ore Swarm (`packages/ore-swarm`)**:
