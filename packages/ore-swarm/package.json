@@ -1,0 +1,12 @@
+{
+  "name": "ore-swarm",
+  "version": "0.1.0",
+  "description": "16-Parallel Game + Ore Mining Swarm Client for Forgehammer",
+  "main": "src/swarm.js",
+  "scripts": {
+    "start": "node src/swarm.js"
+  },
+  "keywords": ["forgehammer", "swarm", "reinforcement-learning", "zero-alloc"],
+  "author": "",
+  "license": "MIT"
+}
