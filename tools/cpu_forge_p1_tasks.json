@@ -1,0 +1,75 @@
+{
+  "project_root": "C:/Users/Masaya.Futamata/Documents/Tusk_architecture",
+  "backend": "gemini-batch",
+  "model": "gemini-3.8-flash",
+  "verify_cmd": "echo [VERIFY] Batch code generation complete",
+  "temperature": 0.1,
+  "system_instruction": "You are a senior Rust systems architect implementing SPEC-042. Output ONLY valid JSON matching responseSchema. Generate complete, production-ready, no_std compatible Rust code adhering to zero-allocation, #[repr(C, align(16))], and static dispatch rules. Do not use heap allocations inside the hot loop. The target in edits must match the placeholder in the target file.",
+  "tasks": [
+    {
+      "id": "task_p1_policy_trait",
+      "title": "Zero-Alloc Policy Trait Definition in policy.rs",
+      "requirement": "Replace the placeholder in `Tusk_core/crates/tusk_core/src/policy.rs`. Implement a full no_std compatible module defining:\n1. `pub trait PolicyEvaluator<const FEAT_N: usize, const ACT_N: usize> { fn eval(&self, features: &[f32; FEAT_N], out_scores: &mut [f32; ACT_N]); }`\n2. `pub struct LinearPolicy<const FEAT_N: usize, const ACT_N: usize> { pub weights: [[f32; FEAT_N]; ACT_N] }` with `#[inline(always)]` evaluation.\n3. Zero allocations, no heap, clean documentation comments in Japanese.",
+      "slices": [
+        {
+          "file": "Tusk_core/crates/tusk_core/src/policy.rs",
+          "start_line": 1,
+          "end_line": 2,
+          "lang": "rust"
+        }
+      ]
+    },
+    {
+      "id": "task_p1_step_record_ring_buffer",
+      "title": "C-aligned StepRecord and Fixed-Size RingBuffer in ring_buffer.rs",
+      "requirement": "Replace the placeholder in `crates/tusk_harvester/src/ring_buffer.rs`. Implement:\n1. `#[repr(C, align(16))] #[derive(Clone, Copy, Debug)] pub struct StepRecord<const N: usize> { pub features: [f32; N], pub advantage: f32, pub action: u8, pub _pad: [u8; 11] }` ensuring 16-byte alignment.\n2. `pub struct EpisodeRingBuffer<const N: usize, const MAX_STEPS: usize> { buffer: [StepRecord<N>; MAX_STEPS], len: usize, is_full: bool }` with zero heap allocation.\n3. Methods: `new()`, `push(record)`, `clear()`, `as_slice()`, `len()`, `is_full()`.",
+      "slices": [
+        {
+          "file": "crates/tusk_harvester/src/ring_buffer.rs",
+          "start_line": 1,
+          "end_line": 1,
+          "lang": "rust"
+        }
+      ]
+    },
+    {
+      "id": "task_p1_sensor_mock",
+      "title": "Sensor Mock with In-Place Noise Injection in sensor.rs",
+      "requirement": "Replace the placeholder in `crates/tusk_harvester/src/sensor.rs`. Implement:\n1. `pub trait FeatureSensor<RawState, const FEAT_N: usize> { fn extract(&self, raw: &RawState, noise_sigma: f32, out_features: &mut [f32; FEAT_N]); }`.\n2. Include an in-place noise injection helper using a lightweight LCG or XorShift PRNG (no heavy external crates) that adds zero-mean noise with standard deviation sigma (default 0.02) to simulate visual jitter from GamersEYE.",
+      "slices": [
+        {
+          "file": "crates/tusk_harvester/src/sensor.rs",
+          "start_line": 1,
+          "end_line": 1,
+          "lang": "rust"
+        }
+      ]
+    },
+    {
+      "id": "task_p1_advantage_gate",
+      "title": "In-place GAE Calculation and Top Quantile Gate in advantage.rs",
+      "requirement": "Replace the placeholder in `crates/tusk_harvester/src/advantage.rs`. Implement:\n1. `pub fn calculate_gae_in_place<const N: usize>(trajectory: &mut [crate::ring_buffer::StepRecord<N>], gamma: f32, lambda: f32) -> f32` that updates `advantage` fields backwards and returns total episode return.\n2. `pub struct AdvantageFilter { threshold_ema: f32, quantile_target: f32, decay: f32 }` providing `should_keep(&mut self, score: f32) -> bool` to filter for the top 15% quantile.",
+      "slices": [
+        {
+          "file": "crates/tusk_harvester/src/advantage.rs",
+          "start_line": 1,
+          "end_line": 1,
+          "lang": "rust"
+        }
+      ]
+    },
+    {
+      "id": "task_p1_binary_writer",
+      "title": "Zero-Copy Binary Chunk Writer in writer.rs",
+      "requirement": "Replace the placeholder in `crates/tusk_harvester/src/writer.rs`. Implement:\n1. `pub struct BinaryChunkWriter<const N: usize> { output_dir: std::path::PathBuf, part_index: usize, max_records_per_file: usize }`.\n2. `pub fn write_episode<const N: usize>(&mut self, records: &[crate::ring_buffer::StepRecord<N>]) -> std::io::Result<()>` using zero-copy byte slice casting (`std::slice::from_raw_parts`) of the `#[repr(C)]` records directly to disk buffers.",
+      "slices": [
+        {
+          "file": "crates/tusk_harvester/src/writer.rs",
+          "start_line": 1,
+          "end_line": 1,
+          "lang": "rust"
+        }
+      ]
+    }
+  ]
+}
