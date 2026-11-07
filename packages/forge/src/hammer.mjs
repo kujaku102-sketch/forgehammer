@@ -58,13 +58,19 @@ export function setWeights(ds, rows, { mode = 'value', beta = 1, clip = [0.05, 2
 
 // ---- learning ----------------------------------------------------------------------------------------------------------------------
 // target for decision i: a distribution over its candidates
+// (the teacher's values run from about -8 to 8, and +-1e6 marks a win or a loss it has seen to the end: those are clamped to +-CLAMP so the softmax does not overflow;
+// a candidate it did not rate takes `fill`, counted when the largest is looked for)
+const CLAMP = 30;
 function teacherDistribution(ds, i, tau, fill) {
   const lo = ds.cOff[i]; const hi = ds.cOff[i + 1]; const q = new Float64Array(hi - lo);
-  let any = false; let max = -Infinity;
-  for (let m = lo; m < hi; m += 1) { const t = ds.tVal[m]; if (!Number.isNaN(t)) { any = true; max = Math.max(max, t / tau); } }
+  let any = false;
+  for (let m = lo; m < hi; m += 1) if (!Number.isNaN(ds.tVal[m])) any = true;
   if (!any) return null;
+  const value = (m) => (Number.isNaN(ds.tVal[m]) ? fill : Math.max(-CLAMP, Math.min(CLAMP, ds.tVal[m])));
+  let max = -Infinity;
+  for (let m = lo; m < hi; m += 1) max = Math.max(max, value(m) / tau);
   let sum = 0;
-  for (let m = lo; m < hi; m += 1) { const t = Number.isNaN(ds.tVal[m]) ? fill : ds.tVal[m]; q[m - lo] = Math.exp(t / tau - max); sum += q[m - lo]; }
+  for (let m = lo; m < hi; m += 1) { q[m - lo] = Math.exp(value(m) / tau - max); sum += q[m - lo]; }
   for (let k = 0; k < q.length; k += 1) q[k] /= sum;
   return q;
 }
