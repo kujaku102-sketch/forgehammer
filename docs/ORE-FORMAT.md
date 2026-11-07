@@ -11,7 +11,7 @@ resumed run) never spoils what is already there; a file cut in the middle of its
 
 ## Header
 ```json
-{ "kind": "forge-ore", "schema": 1, "featureVersion": 2, "featureNames": ["type_install", "..."], "stateNames": ["turn", "..."],
+{ "kind": "forge-ore", "schema": 1, "featureVersion": 3, "featureNames": ["type_install", "..."], "stateNames": ["turn", "..."],
   "game": { "commit": "…", "variant": null },
   "rules": { "ruleVersion": "2.0-public-staging.19", "cardVersion": "beta0.9.2-cards.11", "firstTurnDraw": { "first": 0, "second": 2 } }, "cpus": { "a": "lookahead", "b": "lookahead" }, "envId": "…" }
 ```
@@ -25,10 +25,13 @@ the reader refuses to mix them.
   "s": [0.5, 1, …],
   "c": [ [[8, 1], [9, 0.2], …], [[4, 1], …] ],
   "t": [-1.5, null],
-  "k": 0, "why": "own" }
+  "k": 0, "why": "own",
+  "e": [ [[4, 1]], … ], "eo": [0, 1, …], "ek": 0 }
 ```
 - `s`: the state features (`stateNames`), dense, 4 significant digits. It is what the value model reads.
 - `c`: the candidates. The candidates are made from the seat's own query alone (its legal actions, with one planning call for each entry that needs a pick: an attack target, a place to put a card, a spell target; a place that differs only in the slot is one) and the features from its observation; the same two functions run in the learned CPU. Candidate *i* is the *i*-th of them, as sparse pairs `[feature index, value]`; a zero is not written. When the decision has kinds of action that give no candidate (several picks, a second stage), one more candidate stands for "let the game's own CPU decide", at the end. The number of candidates differs from decision to decision.
+- `e`: the same features for the legal actions *before their options are known* (one per entry of the seat's legal-actions list, in order; an entry that still needs a pick has `entry_open`). `eo`: for each candidate, the index of the entry it comes from (`-1` for the extra "let the game's CPU decide" candidate). `ek`: the entry the teacher's action comes from, or `null`. A CPU that picks the entry first and plans only that one is learned from these (`forge hammer --method staged`).
+- Some features need what the seat itself has done earlier in its turn (`used_n`, `moves_done`, …); the recorder keeps that record per seat and turn, and so does the CPU.
 - `t`: the teacher's own value of each candidate (for lookahead, its average gain), or `null` where it did not rate it.
 - `k`: the index of the candidate the teacher chose; `null` when it could not be matched to a candidate (not learned from).
 - `why`: `own` (the teacher chose by its own rating), `no-gain` / `no-supported-move` (it left the move to the game's CPU), with `:baseline` added when that move had no candidate of its own and was matched to the "let the game's CPU decide" candidate, `:unmapped` when it matched nothing.
