@@ -20,6 +20,7 @@ import { readOre } from '../src/ore.mjs';
 import { buildDataset, entryView, optionView, splitByMatch } from '../src/data.mjs';
 import { breakdown, evaluate, evaluateStaged, fitValueModel, setWeights, train, trainStaged, typeOf } from '../src/hammer.mjs';
 import { forgeModule } from '../src/smith.mjs';
+import { applyCross, crossSpec } from '../src/cross.mjs';
 import { mergeOre, readExpected } from '../src/ore-merge.mjs';
 import { packBundle, verifyBundle } from '../src/bundle.mjs';
 import { applyMarks, buildAudit, loadMarks } from '../src/audit.mjs';
@@ -84,7 +85,14 @@ if (isGroup) {
     if (mode === 'weight') for (const d of finishedOnly) d.auditWeight = status(d) === 'adopt' ? 2 : 1;
   }
   if (sourceWeights) for (const d of finishedOnly) d.sourceWeight = sourceWeights[d.src ?? 'lookahead'] ?? 1;
-  const ds = buildDataset(finishedOnly, ore.header, { why: args.why ?? 'all' });
+  let ds = buildDataset(finishedOnly, ore.header, { why: args.why ?? 'all' });
+  let cross = null;
+  if (typeof args.cross === 'string') {
+    if ((args.method ?? 'softmax') === 'staged') throw new Error('--cross is for the flat CPU');
+    cross = crossSpec(ore.header.featureNames, ore.header.stateNames, args.cross);
+    ds = applyCross(ds, cross, ore.header.featureNames, ore.header.stateNames);
+    console.log(`cross ${cross.preset}: ${cross.rows.length} candidate features x ${cross.cols.length} state features = ${cross.rows.length * cross.cols.length} more, ${ds.F} in all`);
+  }
   const { train: trainRows, val: valRows } = splitByMatch(ds, Number(args.val ?? 0.2), Number(args.seed ?? 1));
   console.log(`learning from ${ds.n} decisions with at least 2 candidates (${ds.M} candidates): ${trainRows.length} to learn, ${valRows.length} kept apart (whole matches)`);
   const advantage = args.advantage ?? 'value';
@@ -122,7 +130,7 @@ if (isGroup) {
   console.log(`  kept apart, by why the teacher chose it:\n    ${split((i) => `${ds.whys[i]}${ds.baselineChosen[i] ? ' (left to the game CPU)' : ''}`, valRows)}`);
   console.log(`  kept apart, by the kind of move chosen:\n    ${split((i) => typeOf(ds, names, ds.cOff[i] + ds.chosen[i]), valRows)}`);
   const out = {
-    kind: 'forge-weights', schema: 1, featureVersion: ore.header.featureVersion, featureNames: names, w: Array.from(trained.w),
+    kind: 'forge-weights', schema: 1, featureVersion: ore.header.featureVersion, featureNames: names, w: Array.from(trained.w), ...(cross ? { cross } : {}),
     meta: {
       method: options.method, target: options.target, why: args.why ?? 'all', advantage, beta: Number(args.beta ?? 1), epochs: options.epochs, lr: options.lr, l2: options.l2, seed: options.seed,
       dataset: { decisions: ds.n, matches: new Set(ds.jobs).size, teacher: JSON.stringify(ore.header.cpus), game: ore.header.game?.commit ?? null },
