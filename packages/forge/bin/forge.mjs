@@ -3,23 +3,29 @@
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
 // forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
+// forge audit build <text-logs...> --out <dir> [--marks marks.jsonl]   a static report (open index.html) to read the decisions and mark them (adopt / reject / hold)
+// forge audit apply <marks.jsonl...> --text <text-logs...> --out marks.jsonl   check the exported marks against the logs and put them together
 // forge bundle pack <dir> --kind ore|weights|eval|report [--round n] [--meta meta.json] | forge bundle verify <dir>   a stage's result as a bundle with hashes
 //
 // hammer options (defaults in brackets):
 //   --method softmax|pairwise|ridge|staged [softmax]   (staged: score the legal actions first, then the options of the best one: two weight vectors)   --target chosen|teacher|mix [chosen]   --mix 0.5 --tau 2 --fill 0.01
 //   --why all|own|<list>      which decisions are learned from: the teacher's own moves only, or those it left to the game's CPU too [all]
+//   --sources lookahead:1.0,llm:0.5   how much each source of decisions counts (the "src" of a decision; none written = lookahead); 0 leaves a source out
+//   --audit marks.jsonl --audit-mode drop-rejected|only-adopted|weight   what the marks of an audit do: leave out the rejected / keep only the adopted / adopted count double, rejected not at all
 //   --advantage value|result|none [value]   --beta 1   (how a decision is weighted by how the match went)
 //   --epochs 40 --lr 0.05 --l2 1e-4 --seed 1 --val 0.2 (the part of the matches kept apart)   --only-types (learn from the move kind alone: the floor to beat)
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { readOre } from '../src/ore.mjs';
 import { buildDataset, entryView, optionView, splitByMatch } from '../src/data.mjs';
 import { breakdown, evaluate, evaluateStaged, fitValueModel, setWeights, train, trainStaged, typeOf } from '../src/hammer.mjs';
 import { forgeModule } from '../src/smith.mjs';
 import { mergeOre, readExpected } from '../src/ore-merge.mjs';
 import { packBundle, verifyBundle } from '../src/bundle.mjs';
+import { applyMarks, buildAudit, loadMarks } from '../src/audit.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
-const isGroup = (command === 'ore' || command === 'bundle');
+const isGroup = (command === 'ore' || command === 'bundle' || command === 'audit');
 const positional = []; const args = {};
 for (let i = 0; i < rest.length; i += 1) {
   if (rest[i].startsWith('--')) { const key = rest[i].slice(2); args[key] = rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[++i] : true; }
@@ -43,6 +49,14 @@ if (isGroup) {
     const result = mergeOre(parsed.pos, parsed.args.out, { expect: typeof parsed.args.expect === 'string' ? readExpected(parsed.args.expect) : null });
     console.log(`merged ${result.matches} matches (${result.decisions} decisions) into ${result.file}; dropped ${JSON.stringify(result.dropped)}`);
     if (result.missing.length || result.extra.length) { console.log(`missing from the table: ${result.missing.length} (${result.missing.slice(0, 5).join(', ')}); not in the table: ${result.extra.length}`); process.exit(1); }
+  } else if (command === 'audit' && sub === 'build') {
+    if (typeof parsed.args.out !== 'string') throw new Error('--out <dir>');
+    const result = buildAudit(parsed.pos, parsed.args.out, { marks: typeof parsed.args.marks === 'string' ? loadMarks(parsed.args.marks) : null });
+    console.log(`audit report: ${result.matches} matches, ${result.decisions} decisions -> ${path.join(parsed.args.out, 'index.html')}`);
+  } else if (command === 'audit' && sub === 'apply') {
+    if (typeof parsed.args.out !== 'string' || typeof parsed.args.text !== 'string') throw new Error('--text <text-logs> --out marks.jsonl');
+    const n = applyMarks(parsed.pos, [parsed.args.text], parsed.args.out);
+    console.log(`${n} marks written to ${parsed.args.out}`);
   } else if (command === 'bundle' && sub === 'pack') {
     const dirName = parsed.pos[0]; const meta = typeof parsed.args.meta === 'string' ? JSON.parse(readFileSync(parsed.args.meta, 'utf8')) : {};
     const manifest = packBundle(dirName, { ...meta, kind: parsed.args.kind, round: parsed.args.round !== undefined ? Number(parsed.args.round) : meta.round });
@@ -57,7 +71,19 @@ if (isGroup) {
 } else if (command === 'hammer') {
   if (typeof args.out !== 'string') throw new Error('--out weights.json');
   const ore = readOre(positional); describe(ore);
-  const finishedOnly = ore.decisions.filter((d) => d.match.status === 'finished');
+  let finishedOnly = ore.decisions.filter((d) => d.match.status === 'finished');
+  const sourceWeights = typeof args.sources === 'string' ? Object.fromEntries(args.sources.split(',').map((x) => { const [k, v] = x.split(':'); return [k, Number(v)]; })) : null;
+  if (sourceWeights) finishedOnly = finishedOnly.filter((d) => (sourceWeights[d.src ?? 'lookahead'] ?? 1) > 0);
+  if (typeof args.audit === 'string') {
+    const marks = loadMarks(args.audit); const mode = args['audit-mode'] ?? 'drop-rejected';
+    const status = (d) => marks.get(`${d.job}|${d.seat}|${d.rev}`)?.status;
+    const before = finishedOnly.length;
+    if (mode === 'drop-rejected' || mode === 'weight') finishedOnly = finishedOnly.filter((d) => status(d) !== 'reject');
+    else if (mode === 'only-adopted') finishedOnly = finishedOnly.filter((d) => status(d) === 'adopt');
+    console.log(`audit (${mode}): ${marks.size} marks, ${before - finishedOnly.length} decisions left out`);
+    if (mode === 'weight') for (const d of finishedOnly) d.auditWeight = status(d) === 'adopt' ? 2 : 1;
+  }
+  if (sourceWeights) for (const d of finishedOnly) d.sourceWeight = sourceWeights[d.src ?? 'lookahead'] ?? 1;
   const ds = buildDataset(finishedOnly, ore.header, { why: args.why ?? 'all' });
   const { train: trainRows, val: valRows } = splitByMatch(ds, Number(args.val ?? 0.2), Number(args.seed ?? 1));
   console.log(`learning from ${ds.n} decisions with at least 2 candidates (${ds.M} candidates): ${trainRows.length} to learn, ${valRows.length} kept apart (whole matches)`);

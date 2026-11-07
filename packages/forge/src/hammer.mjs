@@ -50,7 +50,7 @@ export function setWeights(ds, rows, { mode = 'value', beta = 1, clip = [0.05, 2
     if (mode === 'result') a = ds.result[i];
     else if (mode === 'value') a = ds.result[i] - valueOf(ds, valueModel, i);
     const w = mode === 'none' ? 1 : Math.min(clip[1], Math.max(clip[0], Math.exp(a / beta)));
-    ds.weight[i] = w; sum += w;
+    ds.weight[i] = w * (ds.sourceWeight?.[i] ?? 1); sum += ds.weight[i];
   }
   const scale = rows.length / Math.max(sum, 1e-9);
   for (const i of rows) ds.weight[i] *= scale;

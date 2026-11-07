@@ -19,11 +19,12 @@ export function buildDataset(decisions, header, { why = 'all', minCands = 2 } = 
   const state = new Float32Array(n * S);
   const chosen = new Int32Array(n);
   const result = new Float32Array(n);
+  const sourceWeight = new Float32Array(n).fill(1);
   const jobs = new Array(n); const whys = new Array(n); const baselineChosen = new Uint8Array(n);
   let m = 0; let p = 0;
   for (let i = 0; i < n; i += 1) {
     const d = kept[i];
-    jobs[i] = d.job; whys[i] = whyOf(d.why); chosen[i] = d.k; baselineChosen[i] = viaBaseline(d.why) ? 1 : 0;
+    jobs[i] = d.job; sourceWeight[i] = (d.sourceWeight ?? 1) * (d.auditWeight ?? 1); whys[i] = whyOf(d.why); chosen[i] = d.k; baselineChosen[i] = viaBaseline(d.why) ? 1 : 0;
     for (let j = 0; j < S; j += 1) state[i * S + j] = d.s[j];
     const winner = d.match.outcome?.kind === 'win' ? d.match.outcome.winnerSeat : null;
     result[i] = winner === null ? 0 : winner === d.seat ? 1 : -1;
@@ -34,7 +35,7 @@ export function buildDataset(decisions, header, { why = 'all', minCands = 2 } = 
     }
   }
   nzOff[M] = p;
-  const ds = { n, M, S, F, cOff, nzOff, nzIdx, nzVal, tVal, state, chosen, result, jobs, whys, baselineChosen, weight: new Float32Array(n).fill(1) };
+  const ds = { n, M, S, F, cOff, nzOff, nzIdx, nzVal, tVal, state, chosen, result, jobs, whys, baselineChosen, sourceWeight, weight: new Float32Array(n).fill(1) };
   // the entries (the legal actions before their options are known) and which entry each candidate comes from, when the records have them
   if (kept.length > 0 && Array.isArray(kept[0].e)) {
     const eOff = new Int32Array(n + 1); let EM = 0; let enz = 0;
