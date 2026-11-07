@@ -7,7 +7,7 @@ const fmt = (x) => (Number.isFinite(x) ? String(Number(x.toPrecision(9))) : '0')
 
 export function forgeModule(weights, { name }) {
   if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('the name may have letters, digits, - and _ only');
-  const body = JSON.stringify({ featureVersion: weights.featureVersion, featureNames: weights.featureNames, w: weights.w.map(fmt) });
+  const body = JSON.stringify({ featureVersion: weights.featureVersion, featureNames: weights.featureNames, w: weights.w.map(fmt), e: (weights.w_entry ?? []).map(fmt), o: (weights.w_option ?? []).map(fmt) });
   const digest = createHash('sha256').update(body).digest('hex').slice(0, 16);
   const lines = [];
   lines.push(`// Forged by forgehammer (packages/forge): a one-weight-vector CPU. Do not edit; forge it again.`);
@@ -20,6 +20,10 @@ export function forgeModule(weights, { name }) {
   lines.push(`  featureVersion: ${weights.featureVersion},`);
   lines.push(`  featureNames: ${JSON.stringify(weights.featureNames)},`);
   lines.push(`  weights: [${weights.w.map(fmt).join(', ')}],`);
+  if (weights.w_entry) {
+    lines.push(`  entryWeights: [${weights.w_entry.map(fmt).join(', ')}],`);
+    lines.push(`  optionWeights: [${weights.w_option.map(fmt).join(', ')}],`);
+  }
   lines.push(`  meta: ${JSON.stringify({ digest, ...(weights.meta ?? {}) })}`);
   lines.push(`});`);
   return `${lines.join('\n')}\n`;

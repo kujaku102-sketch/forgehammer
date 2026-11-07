@@ -4,14 +4,14 @@
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
 //
 // hammer options (defaults in brackets):
-//   --method softmax|pairwise|ridge [softmax]   --target chosen|teacher|mix [chosen]   --mix 0.5 --tau 2 --fill 0.01
+//   --method softmax|pairwise|ridge|staged [softmax]   (staged: score the legal actions first, then the options of the best one: two weight vectors)   --target chosen|teacher|mix [chosen]   --mix 0.5 --tau 2 --fill 0.01
 //   --why all|own|<list>      which decisions are learned from: the teacher's own moves only, or those it left to the game's CPU too [all]
 //   --advantage value|result|none [value]   --beta 1   (how a decision is weighted by how the match went)
 //   --epochs 40 --lr 0.05 --l2 1e-4 --seed 1 --val 0.2 (the part of the matches kept apart)   --only-types (learn from the move kind alone: the floor to beat)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { readOre } from '../src/ore.mjs';
-import { buildDataset, splitByMatch } from '../src/data.mjs';
-import { breakdown, evaluate, fitValueModel, setWeights, train, typeOf } from '../src/hammer.mjs';
+import { buildDataset, entryView, optionView, splitByMatch } from '../src/data.mjs';
+import { breakdown, evaluate, evaluateStaged, fitValueModel, setWeights, train, trainStaged, typeOf } from '../src/hammer.mjs';
 import { forgeModule } from '../src/smith.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
@@ -49,6 +49,22 @@ if (command === 'info') {
     epochs: Number(args.epochs ?? 40), lr: Number(args.lr ?? 0.05), l2: Number(args.l2 ?? 1e-4), seed: Number(args.seed ?? 1), mask, valRows, log: args.quiet ? () => {} : console.log
   };
   const started = Date.now();
+  if (options.method === 'staged') {
+    const eView = entryView(ds); const oView = optionView(ds);
+    const staged = trainStaged(ds, trainRows, { ...options, method: 'softmax' }, eView, oView, valRows);
+    const joint = evaluateStaged(ds, eView, oView, staged.entry.w, staged.option.w, valRows);
+    const jointTrain = evaluateStaged(ds, eView, oView, staged.entry.w, staged.option.w, trainRows);
+    console.log(`\nstaged, advantage ${advantage}, why ${args.why ?? 'all'}; ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    console.log(`  kept apart: entry top-1 ${pct(joint.entryTop1)} (n ${joint.n}); option top-1 ${pct(joint.optionTop1)} (n ${joint.optionN}, the teacher's entry given); both ${pct(joint.jointTop1)}`);
+    console.log(`  learn: entry ${pct(jointTrain.entryTop1)}; option ${pct(jointTrain.optionTop1)}; both ${pct(jointTrain.jointTop1)}`);
+    const outStaged = { kind: 'forge-weights', schema: 1, featureVersion: ore.header.featureVersion, featureNames: names, w: [], w_entry: Array.from(staged.entry.w), w_option: Array.from(staged.option.w),
+      meta: { method: 'staged', target: 'chosen', why: args.why ?? 'all', advantage, beta: Number(args.beta ?? 1), epochs: options.epochs, lr: options.lr, l2: options.l2, seed: options.seed,
+        dataset: { decisions: ds.n, matches: new Set(ds.jobs).size, teacher: JSON.stringify(ore.header.cpus), game: ore.header.game?.commit ?? null, rules: ore.header.rules ?? null },
+        validation: { n: joint.n, top1: joint.jointTop1, entryTop1: joint.entryTop1, optionTop1: joint.optionTop1 }, createdAt: new Date().toISOString() } };
+    writeFileSync(args.out, `${JSON.stringify(outStaged, null, 1)}\n`);
+    console.log(`weights written to ${args.out}`);
+    process.exit(0);
+  }
   const trained = train(ds, trainRows, options);
   const trainEval = evaluate(ds, trained.w, trainRows); const valEval = evaluate(ds, trained.w, valRows);
   console.log(`\n${options.method}${options.method === 'softmax' ? `/${options.target}` : ''}, advantage ${advantage}, why ${args.why ?? 'all'}${mask ? ', move kind only' : ''}; best epoch ${trained.bestEpoch}; ${((Date.now() - started) / 1000).toFixed(1)} s`);

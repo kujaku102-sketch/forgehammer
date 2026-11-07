@@ -157,6 +157,37 @@ function solve(A, b) {
   return Float64Array.from(M.map((row) => row[n]));
 }
 
+// ---- the two stages ------------------------------------------------------------------------------------------------------------------
+// Learns the entry scorer and the option scorer separately (each is the softmax above on its own view of the data) and reports how often each is right, and how often both are
+// (the teacher's whole move found: its entry, and its option within it).
+export function trainStaged(ds, trainRows, options, entryOf, optionOf, valRows) {
+  const keep = (rows, eligible) => { const set = new Set(eligible); return rows.filter((i) => set.has(i)); };
+  const entry = train(entryOf.view, keep(trainRows, entryOf.rows), { ...options, valRows: keep(valRows, entryOf.rows) });
+  const option = train(optionOf.view, keep(trainRows, optionOf.rows), { ...options, valRows: keep(valRows, optionOf.rows) });
+  return { entry, option };
+}
+
+// joint accuracy on the decisions of `rows` (every decision with a known entry): the best entry is the teacher's, and, when that entry has options to choose among, the best option is too
+export function evaluateStaged(ds, entryOf, optionOf, wEntry, wOption, rows) {
+  let n = 0; let entryHit = 0; let both = 0; let optionN = 0; let optionHit = 0;
+  const optionRows = new Set(optionOf.rows);
+  for (const i of rows) {
+    if (ds.ek[i] < 0 || ds.eOff[i + 1] - ds.eOff[i] < 1) continue;
+    n += 1;
+    const lo = ds.eOff[i]; const K = ds.eOff[i + 1] - lo; let best = 0; let bz = -Infinity;
+    for (let c = 0; c < K; c += 1) { const z = score(entryOf.view, wEntry, lo + c); if (z > bz) { bz = z; best = c; } }
+    const hitEntry = best === ds.ek[i]; if (hitEntry) entryHit += 1;
+    if (optionRows.has(i)) {
+      optionN += 1;
+      const olo = optionOf.view.cOff[i]; const OK = optionOf.view.cOff[i + 1] - olo; let ob = 0; let oz = -Infinity;
+      for (let c = 0; c < OK; c += 1) { const z = score(optionOf.view, wOption, olo + c); if (z > oz) { oz = z; ob = c; } }
+      const hitOption = ob === optionOf.view.chosen[i]; if (hitOption) optionHit += 1;
+      if (hitEntry && hitOption) both += 1;
+    } else if (hitEntry) both += 1;
+  }
+  return { n, entryTop1: entryHit / Math.max(n, 1), optionN, optionTop1: optionHit / Math.max(optionN, 1), jointTop1: both / Math.max(n, 1) };
+}
+
 // ---- measuring ---------------------------------------------------------------------------------------------------------------------
 export function evaluate(ds, w, rows) {
   let nll = 0; let top1 = 0; let top3 = 0; let rank = 0; let chance = 0;

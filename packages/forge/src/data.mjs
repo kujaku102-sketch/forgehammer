@@ -34,7 +34,51 @@ export function buildDataset(decisions, header, { why = 'all', minCands = 2 } = 
     }
   }
   nzOff[M] = p;
-  return { n, M, S, F, cOff, nzOff, nzIdx, nzVal, tVal, state, chosen, result, jobs, whys, baselineChosen, weight: new Float32Array(n).fill(1) };
+  const ds = { n, M, S, F, cOff, nzOff, nzIdx, nzVal, tVal, state, chosen, result, jobs, whys, baselineChosen, weight: new Float32Array(n).fill(1) };
+  // the entries (the legal actions before their options are known) and which entry each candidate comes from, when the records have them
+  if (kept.length > 0 && Array.isArray(kept[0].e)) {
+    const eOff = new Int32Array(n + 1); let EM = 0; let enz = 0;
+    for (let i = 0; i < n; i += 1) { eOff[i] = EM; EM += kept[i].e.length; for (const e of kept[i].e) enz += e.length; }
+    eOff[n] = EM;
+    const enzOff = new Int32Array(EM + 1); const enzIdx = new Int32Array(enz); const enzVal = new Float32Array(enz);
+    const ek = new Int32Array(n).fill(-1); const eo = new Int32Array(M);
+    let em = 0; let ep = 0; let cm = 0;
+    for (let i = 0; i < n; i += 1) {
+      ek[i] = kept[i].ek ?? -1;
+      for (const e of kept[i].e) { enzOff[em] = ep; for (const [idx, val] of e) { enzIdx[ep] = idx; enzVal[ep] = val; ep += 1; } em += 1; }
+      for (const o of kept[i].eo) { eo[cm] = o; cm += 1; }
+    }
+    enzOff[EM] = ep;
+    Object.assign(ds, { EM, eOff, enzOff, enzIdx, enzVal, ek, eo });
+  }
+  return ds;
+}
+
+// The entry stage as a dataset of its own: the candidates of a decision are its entries, the chosen one the teacher's entry. Rows: the decisions with a known entry and at least 2 entries.
+export function entryView(ds) {
+  const view = { ...ds, M: ds.EM, cOff: ds.eOff, nzOff: ds.enzOff, nzIdx: ds.enzIdx, nzVal: ds.enzVal, chosen: ds.ek, tVal: new Float32Array(ds.EM).fill(NaN) };
+  const rows = []; for (let i = 0; i < ds.n; i += 1) if (ds.ek[i] >= 0 && ds.eOff[i + 1] - ds.eOff[i] >= 2) rows.push(i);
+  return { view, rows };
+}
+
+// The option stage: the candidates of a decision are the candidates that come from the teacher's entry. Rows: the decisions where that entry has at least 2 candidates and the teacher's candidate is one of them.
+export function optionView(ds) {
+  const cOff = new Int32Array(ds.n + 1); const idxList = []; const chosen = new Int32Array(ds.n).fill(-1); const rows = [];
+  for (let i = 0; i < ds.n; i += 1) {
+    cOff[i] = idxList.length;
+    if (ds.ek[i] < 0) continue;
+    const group = [];
+    for (let m = ds.cOff[i]; m < ds.cOff[i + 1]; m += 1) if (ds.eo[m] === ds.ek[i]) group.push(m);
+    const k = group.indexOf(ds.cOff[i] + ds.chosen[i]);
+    if (group.length >= 2 && k >= 0) { idxList.push(...group); chosen[i] = k; rows.push(i); }
+  }
+  cOff[ds.n] = idxList.length;
+  const M = idxList.length; const nzOff = new Int32Array(M + 1); let nnz = 0;
+  for (const m of idxList) nnz += ds.nzOff[m + 1] - ds.nzOff[m];
+  const nzIdx = new Int32Array(nnz); const nzVal = new Float32Array(nnz); let p = 0;
+  idxList.forEach((m, j) => { nzOff[j] = p; for (let q = ds.nzOff[m]; q < ds.nzOff[m + 1]; q += 1) { nzIdx[p] = ds.nzIdx[q]; nzVal[p] = ds.nzVal[q]; p += 1; } });
+  nzOff[M] = p;
+  return { view: { ...ds, M, cOff, nzOff, nzIdx, nzVal, chosen, tVal: new Float32Array(M).fill(NaN) }, rows };
 }
 
 // Candidate score z = w·φ for candidate m.
