@@ -9,7 +9,7 @@ Forgehammer は、ゲームやシミュレータの探索ログから**ナノ秒
 ## 目次
 1. [設計思想と全体アーキテクチャ](#1-設計思想と全体アーキテクチャ)
 2. [4大構成要素](#2-4大構成要素)
-   - [① 16多重並列採掘スウォーム (packages/ore-swarm)](#1-16多重並列採掘スウォーム-packagesore-swarm)
+   - [① 16多重並列採掘スウォーム (legacy/ore-swarm)](#1-16多重並列採掘スウォーム-legacyore-swarm)
    - [② ゼロアロケーション採掘機 (crates/harvester)](#2-ゼロアロケーション採掘機-cratesharvester)
    - [③ 金床と鍛造ハンマー (crates/hammer)](#3-金床と鍛造ハンマー-crateshammer)
    - [④ 鍛造刃 CPU (crates/blade)](#4-鍛造刃-cpu-cratesblade)
@@ -30,7 +30,7 @@ Forgehammer は、以下の3つの極限要件を完全達成するために設�
 
 ```
 [16多重 並列採掘機]                [金床＆ハンマー]                 [鍛造刃 CPU]
-packages/ore-swarm                crates/hammer                   crates/blade
+legacy/ore-swarm                crates/hammer                   crates/blade
 ┌──────────────────┐             ┌─────────────────┐             ┌─────────────────┐
 │ Game + CPU + 記録 │ ──.bin──>  │ 不純物叩き落とし │  ──Rust──>   │ 2.93ns 純粋関数 │
 │ 16スレッド爆走   │             │ AWR / 決定株    │    コード   │ Zero Allocation │
@@ -41,7 +41,7 @@ packages/ore-swarm                crates/hammer                   crates/blade
 
 ## 2. 4大構成要素
 
-### ① 16多重並列採掘スウォーム (`packages/ore-swarm`)
+### ① 16多重並列採掘スウォーム (`legacy/ore-swarm`)
 JavaScript/Node.js 環境で動く、超高スループット並列採掘クライアント。
 
 - **`GameOreUnit`（ニコイチ構成）**:
@@ -108,7 +108,7 @@ Windows コマンドプロンプト上で火花を散らす 24-bit TrueColor ANS
 ## 4. 自作ゲーム・実環境への組み込みガイド
 
 あなたの自作ゲーム（HTML/JS/Canvas/カードゲーム）を接続する手順です。
-書き換えるファイルは **[packages/ore-swarm/src/mock_game.js](file:///C:/Users/Masaya.Futamata/Documents/forgehammer/packages/ore-swarm/src/mock_game.js) のみ** です。
+書き換えるファイルは **[legacy/ore-swarm/src/mock_game.js](file:///C:/Users/Masaya.Futamata/Documents/forgehammer/legacy/ore-swarm/src/mock_game.js) のみ** です。
 
 ### 手順 1: 特徴量ベクトル（Features）の設計
 ゲームの状態を固定長（例: 8次元）の `Float32Array` に正規化します。
@@ -156,7 +156,7 @@ launch_swarm.bat
 
 ### 手順 4: ハンマーで鍛造
 ```bash
-cargo run --release -p hammer -- packages/ore-swarm/data/ore/ore_worker_00.bin crates/blade/src/lib.rs
+cargo run --release -p hammer -- legacy/ore-swarm/data/ore/ore_worker_00.bin crates/blade/src/lib.rs
 ```
 **数ミリ秒で、2.93nsの最強CPUコード（`Blade`）が射出されます。**
 

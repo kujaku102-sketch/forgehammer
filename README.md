@@ -6,9 +6,26 @@ High-throughput, zero-allocation policy distillation and ultra-fast decision eng
 
 ```
 [16多重 JS Swarm] GameOreUnit x 16  -->  [金床とハンマー] Hammer Strike  -->  [鍛造刃] Blade CPU
-  (packages/ore-swarm)                       (crates/hammer)               (crates/blade)
+  (legacy/ore-swarm)                       (crates/hammer)               (crates/blade)
   JS/Node.js ゼロコピー採掘                  不純物を叩き落とし薄く伸ばす     2.93ns で敵を斬る純粋関数
 ```
+
+---
+
+## 可変候補版（`packages/forge`）— いま使う道
+
+先生役の CPU が打った試合の「判断」を記録し、**候補の数が判断ごとに違ってよい**形で、候補ごとの点数 `z = w·φ(s,a)`（重みは1組）を学び、そのまま対戦できる JS の CPU モジュールを書き出す。
+
+```
+node packages/forge/bin/forge.mjs info    <ore...>                         記録の中身
+node packages/forge/bin/forge.mjs hammer  <ore...> --out weights.json      学ぶ（softmax / pairwise / ridge、advantage で重み付け、試合単位で検証）
+node packages/forge/bin/forge.mjs smith   weights.json --out <cpus/forged-名前.mjs> --name 名前   CPU モジュールを書く
+```
+- 記録の形: [docs/ORE-FORMAT.md](docs/ORE-FORMAT.md)（JSONL を gzip のメンバー単位で追記。試合ごとに終端行とハッシュ）。
+- 記録を書く側と、特徴 φ を作る関数は、ゲームの対戦機（SZbattlefield）の側にある（`src/ore.mjs`、`cpus/learned/features.mjs`）。学習時と実行時で同じ関数を使う。
+- 特徴はその席から見える情報だけ。カード名・番号では決め打ちしない。
+
+下の「4大構成要素」（固定8特徴×4手の試作）は旧版。`legacy/ore-swarm`（mock_game.js を含む）と `crates/*` は、そのまま残してある。
 
 ---
 
@@ -21,7 +38,7 @@ High-throughput, zero-allocation policy distillation and ultra-fast decision eng
 
 ## 4大構成要素
 
-1. **[16多重 並列採掘機] Ore Swarm (`packages/ore-swarm`)**:
+1. **[16多重 並列採掘機] Ore Swarm (`legacy/ore-swarm`)**:
    - `GameInstance + PilotCPU + FlightClerk` が1パッケージ（`GameOreUnit`）。
    - Node.js `worker_threads` により16個のゲームを同時超速ループ実行。
    - Zero-GC の `ArrayBuffer` で記録し、Rustと完全一致する16バイトアライメント `.bin` を連続射出。
@@ -51,7 +68,7 @@ High-throughput, zero-allocation policy distillation and ultra-fast decision eng
 launch_swarm.bat
 
 # またはCLI
-cd packages/ore-swarm
+cd legacy/ore-swarm
 node src/swarm.js
 ```
 
@@ -66,5 +83,5 @@ cargo run --release -p forge_tui
 
 ### 3. 採掘バイナリをハンマーで一撃鍛造
 ```bash
-cargo run --release -p hammer -- packages/ore-swarm/data/ore/ore_worker_00.bin crates/blade/src/lib.rs
+cargo run --release -p hammer -- legacy/ore-swarm/data/ore/ore_worker_00.bin crates/blade/src/lib.rs
 ```

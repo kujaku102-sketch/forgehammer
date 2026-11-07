@@ -1,0 +1,10 @@
+{
+  "name": "forge",
+  "version": "0.2.0",
+  "description": "Forgehammer, variable-candidate version: reads what a teacher CPU decided, learns one weight vector, writes a CPU module.",
+  "type": "module",
+  "private": true,
+  "bin": { "forge": "bin/forge.mjs" },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
