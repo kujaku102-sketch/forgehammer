@@ -8,3 +8,7 @@ Thumbs.db
 *.jsonl.gz
 weights*.json
 data/
+
+forge.config.json
+.env
+*.key

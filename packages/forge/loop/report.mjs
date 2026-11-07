@@ -3,9 +3,10 @@
 // Writes <work>/周-<round>.md and says whether a stopping mark is reached (against lookahead above 50%, or two rounds in a row that moved only within the range).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { loadConfig } from '../src/config.mjs';
 
 const [configPath, roundArg] = process.argv.slice(2);
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
+const { config } = loadConfig({ argv: ['--config', configPath] });   // src/config.mjs: the settings of this machine (command line > FORGE_* > file > defaults)
 const round = Number(roundArg);
 const pct = (x) => `${(100 * x).toFixed(1)}%`;
 const pts = (x) => `${x >= 0 ? '+' : ''}${(100 * x).toFixed(1)}`;

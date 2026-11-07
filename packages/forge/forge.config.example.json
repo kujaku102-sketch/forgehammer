@@ -1,0 +1,13 @@
+{
+  "work": "./forge-work",
+  "szb": "../SZbattlefield",
+  "forge": ".",
+  "game": { "commit": "<full sha of the game commit to play>", "variant": null, "source": "https://github.com/kujaku102-sketch/Siege_Zeke_openbeta", "clones": "./forge-work/clones" },
+  "workers": 4,
+  "teacher": "lookahead",
+  "record": { "firstSeed": 106, "seedsPerRound": 5 },
+  "eval": { "vsSimple": "1-10", "vsLookahead": "1-5" },
+  "baseOre": [],
+  "student0": { "name": "loop0", "weights": "./forge-work/round-0/w.json" },
+  "round0": { "vsSimple": "./forge-work/round-0/eval/vs-simple", "vsLookahead": "./forge-work/round-0/eval/vs-lookahead" }
+}

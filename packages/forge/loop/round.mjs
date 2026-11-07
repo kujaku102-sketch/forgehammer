@@ -20,10 +20,11 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { loadConfig } from '../src/config.mjs';
 
 const [configPath, roundArg, phase] = process.argv.slice(2);
 if (!configPath || !roundArg || !['record', 'train-eval'].includes(phase)) { console.error('usage: round.mjs <config.json> <round> record|train-eval'); process.exit(2); }
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
+const { config } = loadConfig({ argv: ['--config', configPath] });   // src/config.mjs: the settings of this machine (command line > FORGE_* > file > defaults)
 const round = Number(roundArg);
 const dir = path.join(config.work, `round-${round}`);
 mkdirSync(dir, { recursive: true });

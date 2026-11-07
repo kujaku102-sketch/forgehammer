@@ -2,6 +2,8 @@
 // forge info <ore...>                              what the records hold
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
+// forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
+// forge bundle pack <dir> --kind ore|weights|eval|report [--round n] [--meta meta.json] | forge bundle verify <dir>   a stage's result as a bundle with hashes
 //
 // hammer options (defaults in brackets):
 //   --method softmax|pairwise|ridge|staged [softmax]   (staged: score the legal actions first, then the options of the best one: two weight vectors)   --target chosen|teacher|mix [chosen]   --mix 0.5 --tau 2 --fill 0.01
@@ -13,8 +15,11 @@ import { readOre } from '../src/ore.mjs';
 import { buildDataset, entryView, optionView, splitByMatch } from '../src/data.mjs';
 import { breakdown, evaluate, evaluateStaged, fitValueModel, setWeights, train, trainStaged, typeOf } from '../src/hammer.mjs';
 import { forgeModule } from '../src/smith.mjs';
+import { mergeOre, readExpected } from '../src/ore-merge.mjs';
+import { packBundle, verifyBundle } from '../src/bundle.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
+const isGroup = (command === 'ore' || command === 'bundle');
 const positional = []; const args = {};
 for (let i = 0; i < rest.length; i += 1) {
   if (rest[i].startsWith('--')) { const key = rest[i].slice(2); args[key] = rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[++i] : true; }
@@ -30,7 +35,24 @@ function describe(ore) {
   console.log(`why: ${JSON.stringify(byWhy)}`);
 }
 
-if (command === 'info') {
+if (isGroup) {
+  const [sub, ...more] = rest; const parsed = { pos: [], args: {} };
+  for (let i = 0; i < more.length; i += 1) { if (more[i].startsWith('--')) { const key = more[i].slice(2); parsed.args[key] = more[i + 1] && !more[i + 1].startsWith('--') ? more[++i] : true; } else parsed.pos.push(more[i]); }
+  if (command === 'ore' && sub === 'merge') {
+    if (typeof parsed.args.out !== 'string') throw new Error('--out <dir>');
+    const result = mergeOre(parsed.pos, parsed.args.out, { expect: typeof parsed.args.expect === 'string' ? readExpected(parsed.args.expect) : null });
+    console.log(`merged ${result.matches} matches (${result.decisions} decisions) into ${result.file}; dropped ${JSON.stringify(result.dropped)}`);
+    if (result.missing.length || result.extra.length) { console.log(`missing from the table: ${result.missing.length} (${result.missing.slice(0, 5).join(', ')}); not in the table: ${result.extra.length}`); process.exit(1); }
+  } else if (command === 'bundle' && sub === 'pack') {
+    const dirName = parsed.pos[0]; const meta = typeof parsed.args.meta === 'string' ? JSON.parse(readFileSync(parsed.args.meta, 'utf8')) : {};
+    const manifest = packBundle(dirName, { ...meta, kind: parsed.args.kind, round: parsed.args.round !== undefined ? Number(parsed.args.round) : meta.round });
+    console.log(`bundle ${manifest.kind} ${manifest.id.slice(0, 12)}: ${Object.keys(manifest.files).length} files`);
+  } else if (command === 'bundle' && sub === 'verify') {
+    const result = verifyBundle(parsed.pos[0]);
+    console.log(result.ok ? `bundle ok (${result.manifest.kind} ${result.manifest.id.slice(0, 12)}, ${Object.keys(result.manifest.files).length} files)` : `bundle NOT ok:\n  ${result.problems.join('\n  ')}`);
+    process.exit(result.ok ? 0 : 1);
+  } else console.log('forge ore merge ... | forge bundle pack|verify ...');
+} else if (command === 'info') {
   describe(readOre(positional));
 } else if (command === 'hammer') {
   if (typeof args.out !== 'string') throw new Error('--out weights.json');

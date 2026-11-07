@@ -25,7 +25,7 @@ export function oreFiles(inputs) {
 
 // Returns { header, decisions: [...], matches: Map(job -> match line), dropped: { blocks, lines, reasons } }.
 // Every decision line is kept as parsed; `d.match` is its match line.
-export function readOre(inputs) {
+export function readOre(inputs, { keepRaw = false } = {}) {
   const files = oreFiles(inputs);
   if (files.length === 0) throw new Error(`no ore-*.jsonl.gz in ${inputs.join(', ')}`);
   let header = null;
@@ -50,9 +50,13 @@ export function readOre(inputs) {
         const hash = createHash('sha256').update(rawLines.join('\n')).digest('hex');
         if (row.decisions !== block.length) drop('count-mismatch', block.length + 1);
         else if (row.sha256 !== hash) drop('hash-mismatch', block.length + 1);
-        else {
+        else if (matches.has(row.job)) {
+          // the same match twice (a resumed run, or two shards that overlap): the same content is counted once, different content means the two were not made alike
+          if (matches.get(row.job).sha256 !== row.sha256) throw new Error(`${file}: match ${row.job} appears twice with different content (not made under the same conditions)`);
+          dropped.duplicates = (dropped.duplicates ?? 0) + 1;
+        } else {
           for (const decision of block) { decision.match = row; decisions.push(decision); }
-          matches.set(row.job, row);
+          matches.set(row.job, keepRaw ? { ...row, raw: [...rawLines] } : row);
         }
         block = []; rawLines = [];
         continue;

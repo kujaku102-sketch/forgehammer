@@ -4,10 +4,11 @@
 // answers to the decisions of that student: sk = what the student played, k = what the teacher chose) and writes round-<n>/analysis.md and analysis.json.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { loadConfig } from '../src/config.mjs';
 import { readOre } from '../src/ore.mjs';
 
 const [configPath, roundArg] = process.argv.slice(2);
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
+const { config } = loadConfig({ argv: ['--config', configPath] });   // src/config.mjs: the settings of this machine (command line > FORGE_* > file > defaults)
 const round = Number(roundArg);
 const dir = path.join(config.work, `round-${round}`);
 const pct = (x) => `${(100 * x).toFixed(1)}%`;
