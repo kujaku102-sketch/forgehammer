@@ -30,7 +30,9 @@ const assign = {}; let next = 1;
 for (const [site, n] of sites) { assign[site] = Array.from({ length: n }, () => next++); }
 const siteOf = (shard) => sites.find(([site]) => assign[site].includes(shard))?.[0];
 
-const tableArgs = (t) => [`--a ${t.a}`, `--b ${t.b}`, `--seeds ${t.seeds}`, ...(t.swap ? ['--swap'] : []), ...(t.shadow ? [`--shadow ${t.shadow}`] : [])];
+// a persona (cpus/personas/<name>.json, "persona": "control" in the table) is given to the CPUs that look ahead (lookahead, deep) named in the table, the shadow teacher too; "style": true counts how each seat played
+const specOf = (t, cpu) => (t.persona && ['lookahead', 'deep'].includes(cpu) ? `${cpu}?persona=${t.persona}` : cpu);
+const tableArgs = (t) => [`--a "${specOf(t, t.a)}"`, `--b "${specOf(t, t.b)}"`, `--seeds ${t.seeds}`, ...(t.swap ? ['--swap'] : []), ...(t.shadow ? [`--shadow "${specOf(t, t.shadow)}"`] : []), ...(t.style ? ['--style'] : [])];
 
 function plan() {
   console.log(`# ${total} shards: ${sites.map(([site, n]) => `${site} ${n} (${assign[site].join(',')})`).join(', ')}`);
@@ -44,10 +46,10 @@ function plan() {
       }
     } else if (site === 'actions') {
       console.log('(workflow play-shards.yml, one start for each table; the CPU file goes in as cpu_gz_b64 with its sha256)');
-      for (const t of cfg.tables) console.log(`gh workflow run play-shards.yml -f game_commit=${cfg.game.commit} -f table=${t.name} -f cpu_a=${t.a} -f cpu_b=${t.b} -f seeds=${t.seeds} -f swap=${Boolean(t.swap)} -f shadow=${t.shadow ?? ''} -f record=${Boolean(t.record)} -f shard_total=${total} -f shards=${shards.join(',')}`);
+      for (const t of cfg.tables) console.log(`gh workflow run play-shards.yml -f game_commit=${cfg.game.commit} -f table=${t.name} -f cpu_a="${specOf(t, t.a)}" -f cpu_b="${specOf(t, t.b)}" -f seeds=${t.seeds} -f swap=${Boolean(t.swap)} -f shadow=${t.shadow ? specOf(t, t.shadow) : ''} -f record=${Boolean(t.record)} -f style=${Boolean(t.style)} -f shard_total=${total} -f shards=${shards.join(',')}`);
     } else if (site === 'colab') {
       console.log('(notebooks/szb_shard.ipynb: set these in the first cell, run the cells; the same cell again continues a stopped shard)');
-      for (const t of cfg.tables) console.log(`NAME="${t.name}"  CPU_A="${t.a}" CPU_B="${t.b}" SEEDS="${t.seeds}" SWAP=${t.swap ? 'True' : 'False'} SHARDS=[${shards.join(', ')}] TOTAL=${total} SHADOW="${t.shadow ?? ''}" RECORD=${t.record ? 'True' : 'False'}`);
+      for (const t of cfg.tables) console.log(`NAME="${t.name}"  CPU_A="${t.a}" CPU_B="${t.b}" PERSONA="${t.persona ?? ''}" STYLE=${t.style ? 'True' : 'False'} SEEDS="${t.seeds}" SWAP=${t.swap ? 'True' : 'False'} SHARDS=[${shards.join(', ')}] TOTAL=${total} SHADOW="${t.shadow ?? ''}" RECORD=${t.record ? 'True' : 'False'}`);
     }
     console.log('');
   }
@@ -84,6 +86,10 @@ function collect() {
           console.log(`play them again anywhere: the same command with --shard <i>/${total} (see "plan"); a partly played shard continues from its raw.jsonl`);
         }
       }
+    }
+    if (t.style && merged.status === 0) {
+      const report = spawnSync(process.execPath, [path.join(cfg.szb, 'src/style-report.mjs'), path.join(out, t.name)], { encoding: 'utf8' });
+      if (report.status === 0) { process.stdout.write(`\nhow the CPUs played:\n${report.stdout}`); writeFileSync(path.join(out, t.name, 'style.md'), report.stdout); }
     }
     if (t.record && ores.length > 0) {
       const mergedOre = spawnSync(process.execPath, [forgeBin, 'ore', 'merge', ...ores, '--out', path.join(out, t.name, 'ore')], { encoding: 'utf8' });
