@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // forge info <ore...>                              what the records hold
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
-// forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
+// forge smith weights.json --out <file.mjs> --name <name> [--topk k=3,reader=deep|one,samples=2,own=3,opp=3]   write the CPU module
 // forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
 // forge audit export-md <text-logs...> --out file.md [--title t] [--all] [--only llm] [--max N]   the disagreements as one markdown file to write the marks into (phone or PC)
 // forge audit import-md <file.md...> --out marks.jsonl [--by 名前]            read the written-in file back into marks (loosely; sections it cannot read are listed, exit code 3)
@@ -184,7 +184,9 @@ if (isGroup) {
 } else if (command === 'smith') {
   const weights = JSON.parse(readFileSync(positional[0], 'utf8'));
   if (typeof args.out !== 'string' || typeof args.name !== 'string') throw new Error('--out <file.mjs> --name <name>');
-  writeFileSync(args.out, forgeModule(weights, { name: args.name }));
+  // --topk k=3,reader=deep,samples=2: a reader looks at the best few moves by score (SZbattlefield cpus/topk-core.mjs); the CPU then needs the sim
+  const topk = typeof args.topk === 'string' ? Object.fromEntries(args.topk.split(',').map((x) => { const [key, value] = x.split('='); return [key, Number.isFinite(Number(value)) ? Number(value) : value]; })) : null;
+  writeFileSync(args.out, forgeModule(weights, { name: args.name, topk }));
   console.log(`CPU module written to ${args.out} (id forged:${args.name})`);
 } else {
   console.log('forge info <ore...> | forge hammer <ore...> --out weights.json [options] | forge smith weights.json --out file.mjs --name name');

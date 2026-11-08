@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 const fmt = (x) => (Number.isFinite(x) ? String(Number(x.toPrecision(9))) : '0');
 
-export function forgeModule(weights, { name }) {
+export function forgeModule(weights, { name, topk = null }) {
   if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('the name may have letters, digits, - and _ only');
   const body = JSON.stringify({ featureVersion: weights.featureVersion, featureNames: weights.featureNames, w: weights.w.map(fmt), cross: weights.cross ?? null, mlp: weights.mlp ?? null, e: (weights.w_entry ?? []).map(fmt), o: (weights.w_option ?? []).map(fmt) });
   const digest = createHash('sha256').update(body).digest('hex').slice(0, 16);
@@ -14,6 +14,7 @@ export function forgeModule(weights, { name }) {
   lines.push(`// weights ${digest}; learned from ${weights.meta?.dataset?.decisions ?? '?'} decisions of ${weights.meta?.dataset?.teacher ?? '?'}; ${weights.meta?.method ?? '?'}, target ${weights.meta?.target ?? '?'}, why ${weights.meta?.why ?? '?'}.`);
   lines.push(`// validation (whole matches kept apart): top-1 ${weights.meta?.validation?.top1 !== undefined ? (100 * weights.meta.validation.top1).toFixed(1) + '%' : '?'} on ${weights.meta?.validation?.n ?? '?'} decisions.`);
   lines.push(`import { learnedCpu } from './learned/policy.mjs';`);
+  if (topk) lines.push(`import { makeTopk } from './topk-core.mjs';`);
   lines.push('');
   lines.push(`export default learnedCpu({`);
   lines.push(`  id: 'forged:${name}',`);
@@ -22,6 +23,7 @@ export function forgeModule(weights, { name }) {
   lines.push(`  weights: [${weights.w.map(fmt).join(', ')}],`);
   if (weights.cross) lines.push(`  cross: ${JSON.stringify(weights.cross)},`);
   if (weights.mlp) lines.push(`  mlp: ${JSON.stringify(weights.mlp)},`);
+  if (topk) lines.push(`  topk: makeTopk(${JSON.stringify(topk)}),`);
   if (weights.w_entry) {
     lines.push(`  entryWeights: [${weights.w_entry.map(fmt).join(', ')}],`);
     lines.push(`  optionWeights: [${weights.w_option.map(fmt).join(', ')}],`);
