@@ -43,16 +43,25 @@ const differs = (d) => {
   return ns.some((n) => t !== null && n !== t) || new Set(ns).size > 1 || (a.student?.n && t !== null && a.student.n !== t);
 };
 
+// only the disagreements of the language models with the teacher (and between the models), not those of the student CPU
+const differsLlm = (d) => {
+  const a = d.answers ?? {};
+  const t = a.teacher?.n ?? null;
+  const ns = [a.llm?.n, ...Object.values(a.llms ?? {}).filter((m) => m && !m.error).map((m) => m.n)].filter((n) => n);
+  return ns.some((n) => t !== null && n !== t) || new Set(ns).size > 1;
+};
+
 const oneLine = (text, max = 160) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-export function exportMd(textDirs, outFile, { title = 'audit', all = false } = {}) {
+// all: every decision; only: 'llm' = the disagreements of the models only; max: at most this many sections (the biggest gaps of the machine's judgement first)
+export function exportMd(textDirs, outFile, { title = 'audit', all = false, only = null, max = Infinity } = {}) {
   const { matches } = readTextLogs(textDirs);
   const rows = []; let matchNo = 0;
   for (const [job, { match, decisions }] of [...matches.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     matchNo += 1;
     for (const d of decisions) rows.push({ d, job, match, matchNo });
   }
-  const chosen = rows.filter(({ d }) => all || differs(d)).sort((x, y) => weight(y.d) - weight(x.d) || x.d.id.localeCompare(y.d.id));
+  const chosen = rows.filter(({ d }) => all || (only === 'llm' ? differsLlm(d) : differs(d))).sort((x, y) => weight(y.d) - weight(x.d) || x.d.id.localeCompare(y.d.id)).slice(0, max);
   const codes = shortCode(rows.map(({ d }) => d.id));
   const out = [];
   out.push(`# ${title}`, '',
@@ -60,7 +69,7 @@ export function exportMd(textDirs, outFile, { title = 'audit', all = false } = {
     '- 各節の「印:」のあとに1語。 採用 / 却下 / 保留。 LLM（LLMの手がよい＝採用）、先読み（lookaheadの手がよい＝却下）、どれも違う（＝却下）も使えます。',
     '- 「正しい手:」のあとに候補の番号（わかるときだけ）。「メモ:」は自由。',
     '- 全角・半角・空白・句点は気にしなくて大丈夫です。節の見出しとID行は書き換えないでください。', '',
-    `${chosen.length} 件（${all ? '全部' : '答えが食い違った判断だけ'}、差が大きい順）`, '');
+    `${chosen.length} 件（${all ? '全部' : only === 'llm' ? 'LLM と先読みの答えが食い違った判断だけ' : '答えが食い違った判断だけ'}、機械の判定の差が大きい順）`, '');
   for (const { d, match, matchNo: no } of chosen) {
     const code = codes.get(d.id);
     out.push(`## ${code} （seed ${d.seed ?? match.seed}・試合 ${no}・ターン ${d.turn}・${d.seat}）`);

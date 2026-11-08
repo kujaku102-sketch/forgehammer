@@ -3,7 +3,7 @@
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
 // forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
-// forge audit export-md <text-logs...> --out file.md [--title t] [--all]   the disagreements as one markdown file to write the marks into (phone or PC)
+// forge audit export-md <text-logs...> --out file.md [--title t] [--all] [--only llm] [--max N]   the disagreements as one markdown file to write the marks into (phone or PC)
 // forge audit import-md <file.md...> --out marks.jsonl [--by 名前]            read the written-in file back into marks (loosely; sections it cannot read are listed, exit code 3)
 // forge audit build <text-logs...> --out <dir> [--marks marks.jsonl] [--open-diff]   a static report (open index.html) to read the decisions and mark them (adopt / reject / hold)
 // forge audit apply <marks.jsonl...> --text <text-logs...> --out marks.jsonl   check the exported marks against the logs and put them together
@@ -23,6 +23,7 @@ import { buildDataset, entryView, optionView, splitByMatch } from '../src/data.m
 import { breakdown, evaluate, evaluateStaged, fitValueModel, setWeights, train, trainStaged, typeOf } from '../src/hammer.mjs';
 import { forgeModule } from '../src/smith.mjs';
 import { applyCross, crossSpec } from '../src/cross.mjs';
+import { evaluateMlp, mlpWeights, trainMlp } from '../src/mlp.mjs';
 import { mergeOre, readExpected } from '../src/ore-merge.mjs';
 import { packBundle, verifyBundle } from '../src/bundle.mjs';
 import { applyMarks, buildAudit, loadMarks } from '../src/audit.mjs';
@@ -59,7 +60,7 @@ if (isGroup) {
     console.log(`audit report: ${result.matches} matches, ${result.decisions} decisions -> ${path.join(parsed.args.out, 'index.html')}`);
   } else if (command === 'audit' && sub === 'export-md') {
     if (typeof parsed.args.out !== 'string') throw new Error('--out file.md');
-    const result = exportMd(parsed.pos, parsed.args.out, { title: typeof parsed.args.title === 'string' ? parsed.args.title : 'audit', all: Boolean(parsed.args.all) });
+    const result = exportMd(parsed.pos, parsed.args.out, { title: typeof parsed.args.title === 'string' ? parsed.args.title : 'audit', all: Boolean(parsed.args.all), only: typeof parsed.args.only === 'string' ? parsed.args.only : null, max: parsed.args.max ? Number(parsed.args.max) : Infinity });
     console.log(`markdown: ${result.sections} sections of ${result.decisions} decisions -> ${parsed.args.out}`);
   } else if (command === 'audit' && sub === 'import-md') {
     if (typeof parsed.args.out !== 'string') throw new Error('--out marks.jsonl');
@@ -132,6 +133,32 @@ if (isGroup) {
         dataset: { decisions: ds.n, matches: new Set(ds.jobs).size, teacher: JSON.stringify(ore.header.cpus), game: ore.header.game?.commit ?? null, rules: ore.header.rules ?? null },
         validation: { n: joint.n, top1: joint.jointTop1, entryTop1: joint.entryTop1, optionTop1: joint.optionTop1 }, createdAt: new Date().toISOString() } };
     writeFileSync(args.out, `${JSON.stringify(outStaged, null, 1)}\n`);
+    console.log(`weights written to ${args.out}`);
+    process.exit(0);
+  }
+  if (options.method === 'mlp') {
+    // a small network: z = v . relu(W1 . phi + U1 . s + b1) + lin . phi  (src/mlp.mjs); --hidden 32 --lr 0.01
+    const hidden = Number(args.hidden ?? 32); const mlpLr = Number(args.lr ?? 0.01);
+    // --residual: the linear scorer is learned first (as always) and held fixed; the network learns only the correction, with a stronger l2 (--mlp-l2, 1e-3): the linear part stays the main part,
+    // and it is a CPU by itself (--linear-out) for what carries over to cards that do not exist yet
+    let linear = null;
+    if (args.residual) {
+      linear = train(ds, trainRows, { ...options, method: 'softmax', target: 'chosen' });
+      const linVal = evaluate(ds, linear.w, valRows);
+      console.log(`linear part alone (kept apart): top-1 ${pct(linVal.top1)}  top-3 ${pct(linVal.top3)}  nll ${linVal.nll.toFixed(3)}`);
+      if (typeof args['linear-out'] === 'string') writeFileSync(args['linear-out'], `${JSON.stringify({ kind: 'forge-weights', schema: 1, featureVersion: ore.header.featureVersion, featureNames: names, w: Array.from(linear.w), meta: { method: 'softmax', target: 'chosen', why: args.why ?? 'all', advantage, epochs: options.epochs, lr: options.lr, l2: options.l2, seed: options.seed, validation: { n: linVal.n, top1: linVal.top1, top3: linVal.top3, nll: linVal.nll }, createdAt: new Date().toISOString() } }, null, 1)}\n`);
+    }
+    const trainedNet = trainMlp(ds, trainRows, { hidden, epochs: options.epochs, lr: mlpLr, l2: args.residual ? Number(args['mlp-l2'] ?? 1e-3) : options.l2, seed: options.seed, valRows, log: options.log, base: linear ? linear.w : null, freezeLin: Boolean(args.residual) });
+    const trainEvalNet = evaluateMlp(ds, trainedNet.net, trainRows); const valEvalNet = evaluateMlp(ds, trainedNet.net, valRows, { names });
+    console.log(`\nmlp (hidden ${hidden}), advantage ${advantage}, why ${args.why ?? 'all'}; best epoch ${trainedNet.bestEpoch}; ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    console.log(`  learn: top-1 ${pct(trainEvalNet.top1)}  top-3 ${pct(trainEvalNet.top3)}`);
+    console.log(`  kept apart: top-1 ${pct(valEvalNet.top1)}  top-3 ${pct(valEvalNet.top3)}  nll ${valEvalNet.nll.toFixed(3)}  (n ${valEvalNet.n})`);
+    console.log('  kept apart, by the kind of move chosen:\n    ' + Object.entries(valEvalNet.byType).sort((a, b) => b[1].n - a[1].n).map(([t, g]) => `${t}: ${pct(g.top1)} (n ${g.n})`).join('\n    '));
+    const outNet = { kind: 'forge-weights', schema: 1, featureVersion: ore.header.featureVersion, featureNames: names, w: [], mlp: mlpWeights(trainedNet.net),
+      meta: { method: args.residual ? 'mlp-residual' : 'mlp', hidden, why: args.why ?? 'all', advantage, beta: Number(args.beta ?? 1), epochs: options.epochs, lr: mlpLr, l2: options.l2, seed: options.seed,
+        dataset: { decisions: ds.n, matches: new Set(ds.jobs).size, teacher: JSON.stringify(ore.header.cpus), game: ore.header.game?.commit ?? null },
+        validation: { n: valEvalNet.n, top1: valEvalNet.top1, top3: valEvalNet.top3, nll: valEvalNet.nll }, createdAt: new Date().toISOString() } };
+    writeFileSync(args.out, `${JSON.stringify(outNet)}\n`);
     console.log(`weights written to ${args.out}`);
     process.exit(0);
   }
