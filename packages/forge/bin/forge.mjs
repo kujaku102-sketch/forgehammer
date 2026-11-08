@@ -13,6 +13,7 @@
 //   --method softmax|pairwise|ridge|staged [softmax]   (staged: score the legal actions first, then the options of the best one: two weight vectors)   --target chosen|teacher|mix [chosen]   --mix 0.5 --tau 2 --fill 0.01
 //   --why all|own|<list>      which decisions are learned from: the teacher's own moves only, or those it left to the game's CPU too [all]
 //   --sources lookahead:1.0,llm:0.5   how much each source of decisions counts (the "src" of a decision; none written = lookahead); 0 leaves a source out
+//   --audit marks.jsonl --audit-mode llm-marks [--audit-weights adopt=3,correct=4,rule=6,teacher=2]   what a person said about the language model's moves decides those records (see the code)
 //   --audit marks.jsonl --audit-mode drop-rejected|only-adopted|weight   what the marks of an audit do: leave out the rejected / keep only the adopted / adopted count double, rejected not at all
 //   --advantage value|result|none [value]   --beta 1   (how a decision is weighted by how the match went)
 //   --epochs 40 --lr 0.05 --l2 1e-4 --seed 1 --val 0.2 (the part of the matches kept apart)   --only-types (learn from the move kind alone: the floor to beat)
@@ -88,9 +89,40 @@ if (isGroup) {
   if (typeof args.out !== 'string') throw new Error('--out weights.json');
   const ore = readOre(positional); describe(ore);
   let finishedOnly = ore.decisions.filter((d) => d.match.status === 'finished');
+  // --audit marks.jsonl --audit-mode llm-marks: what a person said about the language model's moves (the marks of 'forge audit import-md') decides these records.
+  //   adopt                 the model's move is taken: its record is kept with a heavy weight; the looking-ahead teacher's record of the same decision is left out
+  //   reject + correct N    neither: the right move N (the number in the prompt) becomes the record's move, heavy; the teacher's record of the same decision is left out
+  //   reject                the teacher's move is taken: the model's record is left out; the teacher's record of the same decision gets a weight
+  // a note that names a line of the rules (":266") counts for more. --audit-weights adopt=3,correct=4,rule=6,teacher=2
+  const pinned = new Set();
+  if (typeof args.audit === 'string' && args['audit-mode'] === 'llm-marks') {
+    const marks = loadMarks(args.audit);
+    const w = { adopt: 3, correct: 4, rule: 6, teacher: 2, ...(typeof args['audit-weights'] === 'string' ? Object.fromEntries(args['audit-weights'].split(',').map((x) => { const [k, v] = x.split('='); return [k, Number(v)]; })) : {}) };
+    const idOf = (d) => `${d.job}|${d.seat}|${d.rev}`;
+    const isLlm = (d) => String(d.src ?? '').startsWith('llm');
+    const rule = (m) => /:\d{2,4}/.test(m?.note ?? '');
+    const left = []; const stats = { adopt: 0, correct: 0, rejectModel: 0, teacherKept: 0, teacherOut: 0, outOfRange: 0 };
+    for (const d of finishedOnly) {
+      const m = marks.get(idOf(d));
+      if (!m) { left.push(d); continue; }
+      const heavy = rule(m);
+      if (m.status === 'adopt') {
+        if (isLlm(d)) { d.pinned = heavy ? w.rule : w.adopt; stats.adopt += 1; left.push(d); } else stats.teacherOut += 1;
+      } else if (m.status === 'reject' && Number.isInteger(m.correct)) {
+        if (isLlm(d)) {
+          if (m.correct >= 1 && m.correct <= d.c.length) { d.k = m.correct - 1; d.pinned = heavy ? w.rule : w.correct; stats.correct += 1; left.push(d); } else stats.outOfRange += 1;
+        } else stats.teacherOut += 1;
+      } else if (m.status === 'reject') {
+        if (isLlm(d)) stats.rejectModel += 1; else { d.pinned = heavy ? w.rule : w.teacher; stats.teacherKept += 1; left.push(d); }
+      } else left.push(d);                       // hold: nothing changes
+    }
+    finishedOnly = left;
+    for (const d of finishedOnly) if (d.pinned !== undefined) pinned.add(d);
+    console.log(`audit (llm-marks): ${marks.size} marks; adopted model records ${stats.adopt}, corrected ${stats.correct} (${stats.outOfRange} numbers out of range), model records left out ${stats.rejectModel}, teacher records kept ${stats.teacherKept} / left out ${stats.teacherOut}; weights ${JSON.stringify(w)}`);
+  }
   const sourceWeights = typeof args.sources === 'string' ? Object.fromEntries(args.sources.split(',').map((x) => { const [k, v] = x.split(':'); return [k, Number(v)]; })) : null;
-  if (sourceWeights) finishedOnly = finishedOnly.filter((d) => (sourceWeights[d.src ?? 'lookahead'] ?? 1) > 0);
-  if (typeof args.audit === 'string') {
+  if (sourceWeights) finishedOnly = finishedOnly.filter((d) => d.pinned !== undefined || (sourceWeights[d.src ?? 'lookahead'] ?? 1) > 0);
+  if (typeof args.audit === 'string' && args['audit-mode'] !== 'llm-marks') {
     const marks = loadMarks(args.audit); const mode = args['audit-mode'] ?? 'drop-rejected';
     const status = (d) => marks.get(`${d.job}|${d.seat}|${d.rev}`)?.status;
     const before = finishedOnly.length;
@@ -100,6 +132,7 @@ if (isGroup) {
     if (mode === 'weight') for (const d of finishedOnly) d.auditWeight = status(d) === 'adopt' ? 2 : 1;
   }
   if (sourceWeights) for (const d of finishedOnly) d.sourceWeight = sourceWeights[d.src ?? 'lookahead'] ?? 1;
+  for (const d of finishedOnly) if (d.pinned !== undefined) d.sourceWeight = d.pinned;
   let ds = buildDataset(finishedOnly, ore.header, { why: args.why ?? 'all' });
   let cross = null;
   if (typeof args.cross === 'string') {
