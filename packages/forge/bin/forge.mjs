@@ -3,6 +3,8 @@
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
 // forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
+// forge audit export-md <text-logs...> --out file.md [--title t] [--all]   the disagreements as one markdown file to write the marks into (phone or PC)
+// forge audit import-md <file.md...> --out marks.jsonl [--by 名前]            read the written-in file back into marks (loosely; sections it cannot read are listed, exit code 3)
 // forge audit build <text-logs...> --out <dir> [--marks marks.jsonl] [--open-diff]   a static report (open index.html) to read the decisions and mark them (adopt / reject / hold)
 // forge audit apply <marks.jsonl...> --text <text-logs...> --out marks.jsonl   check the exported marks against the logs and put them together
 // forge bundle pack <dir> --kind ore|weights|eval|report [--round n] [--meta meta.json] | forge bundle verify <dir>   a stage's result as a bundle with hashes
@@ -24,6 +26,7 @@ import { applyCross, crossSpec } from '../src/cross.mjs';
 import { mergeOre, readExpected } from '../src/ore-merge.mjs';
 import { packBundle, verifyBundle } from '../src/bundle.mjs';
 import { applyMarks, buildAudit, loadMarks } from '../src/audit.mjs';
+import { exportMd, importMd, writeMarks } from '../src/auditmd.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
 const isGroup = (command === 'ore' || command === 'bundle' || command === 'audit');
@@ -54,6 +57,17 @@ if (isGroup) {
     if (typeof parsed.args.out !== 'string') throw new Error('--out <dir>');
     const result = buildAudit(parsed.pos, parsed.args.out, { marks: typeof parsed.args.marks === 'string' ? loadMarks(parsed.args.marks) : null, open: parsed.args['open-diff'] ? { all: true, diff: true } : null });
     console.log(`audit report: ${result.matches} matches, ${result.decisions} decisions -> ${path.join(parsed.args.out, 'index.html')}`);
+  } else if (command === 'audit' && sub === 'export-md') {
+    if (typeof parsed.args.out !== 'string') throw new Error('--out file.md');
+    const result = exportMd(parsed.pos, parsed.args.out, { title: typeof parsed.args.title === 'string' ? parsed.args.title : 'audit', all: Boolean(parsed.args.all) });
+    console.log(`markdown: ${result.sections} sections of ${result.decisions} decisions -> ${parsed.args.out}`);
+  } else if (command === 'audit' && sub === 'import-md') {
+    if (typeof parsed.args.out !== 'string') throw new Error('--out marks.jsonl');
+    const result = importMd(parsed.pos, { by: typeof parsed.args.by === 'string' ? parsed.args.by : '文豪' });
+    writeMarks(result.marks, parsed.args.out);
+    console.log(`${result.sections} sections: ${result.marks.length} marks written to ${parsed.args.out}, ${result.blank} left blank, ${result.unreadable.length} could not be read`);
+    for (const u of result.unreadable) console.log(`  unreadable: ${path.basename(u.file)} line ${u.line} ${u.heading}: ${u.reason}`);
+    if (result.unreadable.length) process.exitCode = 3;
   } else if (command === 'audit' && sub === 'apply') {
     if (typeof parsed.args.out !== 'string' || typeof parsed.args.text !== 'string') throw new Error('--text <text-logs> --out marks.jsonl');
     const n = applyMarks(parsed.pos, [parsed.args.text], parsed.args.out);

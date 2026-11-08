@@ -65,7 +65,7 @@ export function applyMarks(files, textDirs, outFile) {
     const before = merged.get(id); if (!before || String(before.at) <= String(mark.at)) merged.set(id, mark);
   }
   if (unknown.length) throw new Error(`${unknown.length} marks name a decision that is not in the logs (e.g. ${unknown[0]})`);
-  writeFileSync(outFile, [...merged.values()].map((m) => JSON.stringify({ decisionId: m.decisionId, status: m.status, by: m.by ?? '', at: m.at ?? '', note: m.note ?? '' })).join('\n') + (merged.size ? '\n' : ''));
+  writeFileSync(outFile, [...merged.values()].map((m) => JSON.stringify({ decisionId: m.decisionId, status: m.status, by: m.by ?? '', at: m.at ?? '', note: m.note ?? '', ...(m.choice ? { choice: m.choice } : {}), ...(m.correct !== undefined ? { correct: m.correct } : {}) })).join('\n') + (merged.size ? '\n' : ''));
   return merged.size;
 }
 
@@ -91,7 +91,7 @@ export function buildAudit(textDirs, outDir, { marks = null, open = null } = {})
       if (differs) disagree += 1; if (bad) invalid += 1;
       const chosen = d.candidates[(t ?? l ?? 1) - 1]?.label ?? '';
       const type = chosen.split(':')[0].trim() || 'その他'; types.add(type);
-      return { id: d.id, seat: d.seat, turn: d.turn, rev: d.rev, prompt: d.prompt, candidates: d.candidates, answers: a, differs, invalid: bad, type, won: seatsWin === null ? null : seatsWin === d.seat };
+      return { id: d.id, seat: d.seat, turn: d.turn, rev: d.rev, prompt: d.prompt, candidates: d.candidates, answers: a, judge: a.judge ?? null, differs, invalid: bad, type, won: seatsWin === null ? null : seatsWin === d.seat };
     });
     for (const deck of Object.values(match.decks ?? {})) decks.add(deck);
     writeFileSync(path.join(outDir, 'data', file), `window.AUDIT_MATCH = window.AUDIT_MATCH || {};\nwindow.AUDIT_MATCH[${JSON.stringify(job)}] = ${JSON.stringify(out).replace(/</g, '\\u003c')};\n`);
@@ -127,9 +127,10 @@ table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--li
 <strong>Audit</strong><span id="info"></span>
 <label><input type="checkbox" id="fAll">全試合まとめて</label><label><input type="checkbox" id="fDiff">食い違い</label><label><input type="checkbox" id="fInvalid">無効</label><label><input type="checkbox" id="fLost">負けた試合</label>
 <label>デッキ <select id="fDeck"><option value="">すべて</option></select></label><label>手 <select id="fType"><option value="">すべて</option></select></label>
+<label>機械の判定 <select id="fJudge"><option value="">すべて</option><option value="llm">LLMが良い</option><option value="lookahead">lookaheadが良い</option><option value="tie">引き分け</option><option value="unknown">不明</option></select></label>
 <label>印 <select id="fMark"><option value="">すべて</option><option value="none">未</option><option value="adopt">採用</option><option value="reject">却下</option><option value="hold">保留</option></select></label>
 <label><input id="fText" placeholder="検索(カード名・理由)" size="16"></label><label>名前 <input id="who" size="8"></label>
-<button id="export">印を書き出す</button><label><input type="file" id="import" accept=".jsonl,.json,.txt">読み込み</label>
+<button id="cross">判定と印の突き合わせ</button><button id="export">印を書き出す</button><label><input type="file" id="import" accept=".jsonl,.json,.txt">読み込み</label>
 </header>
 <main><section id="matches"></section><section id="decisions"></section><section id="detail">試合を選んでください。</section></main>
 <script src="data/index.js"></script><script src="data/marks.js"></script>
@@ -175,17 +176,17 @@ function renderMatches() {
 }
 function renderDecisions() {
   const box = $('decisions'); box.textContent = '';
-  const f = { diff: $('fDiff').checked, inv: $('fInvalid').checked, lost: $('fLost').checked, type: $('fType').value, mark: $('fMark').value, text: $('fText').value.trim() };
+  const f = { diff: $('fDiff').checked, inv: $('fInvalid').checked, lost: $('fLost').checked, type: $('fType').value, mark: $('fMark').value, judge: $('fJudge').value, text: $('fText').value.trim() };
   const all = $('fAll').checked;
   if (all && !IDX.matches.every((m) => loaded[m.job])) { box.textContent = '読み込み中...'; loadAll(renderDecisions); return; }
-  shown = (all ? everything() : cur).filter((d) => (!f.diff || d.differs) && (!f.inv || d.invalid) && (!f.lost || d.won === false) && (!f.type || d.type === f.type)
+  shown = (all ? everything() : cur).filter((d) => (!f.diff || d.differs) && (!f.inv || d.invalid) && (!f.lost || d.won === false) && (!f.type || d.type === f.type) && (!f.judge || d.judge?.winner === f.judge)
     && (!f.mark || (f.mark === 'none' ? !mark(d) : mark(d) === f.mark))
     && (!f.text || (d.prompt + JSON.stringify(d.answers) + d.candidates.map((c) => c.label).join(' ')).includes(f.text)));
   shown.forEach((d, i) => {
     const div = document.createElement('div'); div.className = 'item' + (i === curIdx ? ' sel' : '');
     const m = mark(d); const t = d.answers.teacher?.n; const s = d.answers.student?.n; const l = d.answers.llm?.n;
     div.textContent = (all ? d.id.split('|')[0].split('/').slice(-3).join('/') + ' ' : '') + 'T' + d.turn + ' ' + d.seat.replace('seat-', '') + ' r' + d.rev + ' ・ ' + d.type;
-    const small = document.createElement('small'); small.textContent = ' 先生' + (t ?? '-') + (s !== undefined ? ' 学習' + (s ?? '-') : '') + (l !== undefined ? ' LLM' + (l ?? '-') : '') + modelNames(d).map((k) => ' ' + k + (d.answers.llms[k].n ?? '×')).join('');
+    const small = document.createElement('small'); small.textContent = ' 先生' + (t ?? '-') + (s !== undefined ? ' 学習' + (s ?? '-') : '') + (l !== undefined ? ' LLM' + (l ?? '-') : '') + modelNames(d).map((k) => ' ' + k + (d.answers.llms[k].n ?? '×')).join('') + (d.judge ? ' 判定:' + ({ llm: 'LLM', lookahead: 'la', tie: '同', unknown: '?' }[d.judge.winner] || d.judge.winner) : '');
     div.appendChild(small);
     if (d.differs) { const x = document.createElement('span'); x.className = 'tag'; x.textContent = '食い違い'; div.appendChild(x); }
     if (d.invalid) { const x = document.createElement('span'); x.className = 'tag'; x.textContent = '無効'; div.appendChild(x); }
@@ -206,7 +207,7 @@ function renderDetail() {
     cells.forEach((x) => { const td = document.createElement('td'); td.textContent = x; tr.appendChild(td); }); tbl.appendChild(tr);
   });
   box.appendChild(tbl);
-  const info = document.createElement('div'); info.style.margin = '6px 0'; info.textContent = '先生: ' + (a.teacher?.baseline ? 'ゲームのCPUに任せた手' : a.teacher?.n ?? '-') + ' (' + (a.teacher?.why || '') + ')' + (a.llm?.agreement ? '  モデルの一致: ' + a.llm.agreement : '') + (a.llm?.reason ? '  LLMの理由: ' + a.llm.reason : '') + (a.llm?.error ? '  LLMのエラー: ' + a.llm.error.kind : ''); box.appendChild(info);
+  const info = document.createElement('div'); info.style.margin = '6px 0'; info.textContent = '先生: ' + (a.teacher?.baseline ? 'ゲームのCPUに任せた手' : a.teacher?.n ?? '-') + ' (' + (a.teacher?.why || '') + ')' + (d.judge ? '  機械の判定: ' + ({ llm: 'LLMの手が良い', lookahead: 'lookaheadの手が良い', tie: '引き分け', unknown: '判定できない' }[d.judge.winner] || d.judge.winner) + (d.judge.values ? ' (LLM ' + (d.judge.values.llm ?? '-') + ' / la ' + (d.judge.values.lookahead ?? '-') + ', ' + (d.judge.samples ?? 0) + '通り)' : '') : '') + (a.llm?.agreement ? '  モデルの一致: ' + a.llm.agreement : '') + (a.llm?.reason ? '  LLMの理由: ' + a.llm.reason : '') + (a.llm?.error ? '  LLMのエラー: ' + a.llm.error.kind : ''); box.appendChild(info);
   for (const k of modelNames(d)) { const m = a.llms[k]; const line = document.createElement('div'); line.style.margin = '4px 0'; line.textContent = k + (m.via ? '(代わりに ' + m.via + ')' : '') + ': ' + (m.error ? 'エラー ' + m.error.kind : '選択 ' + m.n) + (m.reason ? ' ・ 理由: ' + m.reason : '') + (m.usd ? ' ・ $' + m.usd.toFixed(5) : ''); box.appendChild(line); }
   const note = document.createElement('input'); note.placeholder = 'メモ'; note.size = 40; note.value = marks.get(d.id)?.note || '';
   const set = (status) => { marks.set(d.id, { decisionId: d.id, status, by: $('who').value || '(名前なし)', at: new Date().toISOString(), note: note.value }); save(); renderDecisions(); renderDetail(); };
@@ -219,7 +220,17 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'j') step(1); else if (e.key === 'k') step(-1);
   else if (shown[curIdx] && ['a', 'r', 'h'].includes(e.key)) { const status = { a: 'adopt', r: 'reject', h: 'hold' }[e.key]; const d = shown[curIdx]; marks.set(d.id, { decisionId: d.id, status, by: $('who').value || '(名前なし)', at: new Date().toISOString(), note: marks.get(d.id)?.note || '' }); save(); renderDecisions(); renderDetail(); }
 });
-for (const id of ['fAll', 'fDiff', 'fInvalid', 'fLost', 'fDeck', 'fType', 'fMark', 'fText']) $(id).addEventListener('input', () => { curIdx = -1; renderMatches(); renderDecisions(); renderDetail(); });
+$('cross').onclick = () => {
+  loadAll(() => {
+    const rows = {}; const cols = ['採用', '却下', '保留', '未'];
+    for (const d of everything()) { if (!d.judge) continue; const m = marks.get(d.id)?.status; const col = { adopt: '採用', reject: '却下', hold: '保留' }[m] || '未'; const row = rows[d.judge.winner] || (rows[d.judge.winner] = {}); row[col] = (row[col] || 0) + 1; }
+    const box = $('detail'); box.textContent = '';
+    const note = document.createElement('div'); note.textContent = '機械の判定（行）と文豪の印（列）。採用 = LLMの手を採る、却下 = lookaheadの手を採る。'; box.appendChild(note);
+    const t = document.createElement('table'); t.innerHTML = '<tr><th>機械の判定</th>' + cols.map((c) => '<th>' + c + '</th>').join('') + '</tr>' + Object.entries(rows).map(([k, r]) => '<tr><td>' + ({ llm: 'LLMが良い', lookahead: 'lookaheadが良い', tie: '引き分け', unknown: '不明' }[k] || k) + '</td>' + cols.map((c) => '<td>' + (r[c] || 0) + '</td>').join('') + '</tr>').join('');
+    box.appendChild(t);
+  });
+};
+for (const id of ['fJudge', 'fAll', 'fDiff', 'fInvalid', 'fLost', 'fDeck', 'fType', 'fMark', 'fText']) $(id).addEventListener('input', () => { curIdx = -1; renderMatches(); renderDecisions(); renderDetail(); });
 $('export').onclick = () => {
   const lines = [...marks.values()].map((m) => JSON.stringify(m)).join('\\n') + '\\n';
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines], { type: 'text/plain' }));
