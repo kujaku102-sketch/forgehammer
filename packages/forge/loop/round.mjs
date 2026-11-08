@@ -36,7 +36,7 @@ const run = (command, args, opts = {}) => {
   if (result.status !== 0) throw new Error(`${command} ${args[0]} failed (${result.status})`);
 };
 const gameEnv = { SZB_WORK: config.game.clones, GAME_SOURCE: config.game.source };
-const szbRun = (args) => run(process.execPath, [path.join(config.szb, 'src/run.mjs'), ...args, '--commit', config.game.commit, ...(config.game.variant ? ['--variant', config.game.variant] : []), '--workers', String(config.workers ?? 5)], { cwd: config.szb, env: gameEnv });
+const szbRun = (args) => run(process.execPath, [path.join(config.szb, 'src/run.mjs'), ...args, '--commit', config.game.commit, ...(config.game.variant ? ['--variant', config.game.variant] : []), '--workers', String(config.workers ?? 5), '--max-matches', '1500'], { cwd: config.szb, env: gameEnv });
 const forge = (args) => run(process.execPath, [path.join(config.forge, 'bin/forge.mjs'), ...args]);
 const weightsOf = (n) => (n === 0 ? config.student0.weights : path.join(config.work, `round-${n}`, 'w.json'));
 const nameOf = (n) => (n === 0 ? config.student0.name : `loop${n}`);
