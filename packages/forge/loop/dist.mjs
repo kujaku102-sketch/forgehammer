@@ -7,7 +7,7 @@
 // dist.json:
 //   { "sites": { "local": 2, "actions": 4, "colab": 2 },        shards for each place, in this order: local gets 1..2, actions 3..6, colab 7..8 (the table is cut into 8 shards)
 //     "szb": "<SZbattlefield checkout>", "game": { "commit": "<full sha>", "node": "24.19.0" },
-//     "tables": [ { "name": "vs-simple", "a": "cpus/forged-loop1.mjs", "b": "simple", "seeds": "301,302,303,304,305", "swap": true, "shadow": "lookahead", "record": true }, ... ] }
+//     "tables": [ { "name": "vs-simple", "a": "cpus/forged-loop1.mjs", "b": "simple", "seeds": "301,302,303,304,305", "swap": true, "shadow": "lookahead", "record": true, "decks": "start-red,ctl-1" (optional: start deck ids and/or decks/<name>.json of SZbattlefield) }, ... ] }
 //
 // Every place writes the same layout:   <root>/<table name>/shard-<i>-of-<N>/{raw.jsonl,env.json,config.json}   and, when it records,   <root>/<table name>/ore/ore-*.jsonl.gz
 // `collect` reads all roots (a place's folder, a downloaded artifact, a Drive folder) and refuses what merge.mjs refuses: another environment (node, game commit, CPU versions, rules),
@@ -32,7 +32,7 @@ const siteOf = (shard) => sites.find(([site]) => assign[site].includes(shard))?.
 
 // a persona (cpus/personas/<name>.json, "persona": "control" in the table) is given to the CPUs that look ahead (lookahead, deep) named in the table, the shadow teacher too; "style": true counts how each seat played
 const specOf = (t, cpu) => (t.persona && ['lookahead', 'deep'].includes(cpu) ? `${cpu}?persona=${t.persona}` : cpu);
-const tableArgs = (t) => [`--a "${specOf(t, t.a)}"`, `--b "${specOf(t, t.b)}"`, `--seeds ${t.seeds}`, ...(t.swap ? ['--swap'] : []), ...(t.shadow ? [`--shadow "${specOf(t, t.shadow)}"`] : []), ...(t.style ? ['--style'] : [])];
+const tableArgs = (t) => [`--a "${specOf(t, t.a)}"`, `--b "${specOf(t, t.b)}"`, `--seeds ${t.seeds}`, ...(t.swap ? ['--swap'] : []), ...(t.shadow ? [`--shadow "${specOf(t, t.shadow)}"`] : []), ...(t.style ? ['--style'] : []), ...(t.decks ? [`--decks ${t.decks}`] : [])];
 
 function plan() {
   console.log(`# ${total} shards: ${sites.map(([site, n]) => `${site} ${n} (${assign[site].join(',')})`).join(', ')}`);
@@ -46,10 +46,10 @@ function plan() {
       }
     } else if (site === 'actions') {
       console.log('(workflow play-shards.yml, one start for each table; the CPU file goes in as cpu_gz_b64 with its sha256)');
-      for (const t of cfg.tables) console.log(`gh workflow run play-shards.yml -f game_commit=${cfg.game.commit} -f table=${t.name} -f cpu_a="${specOf(t, t.a)}" -f cpu_b="${specOf(t, t.b)}" -f seeds=${t.seeds} -f swap=${Boolean(t.swap)} -f shadow=${t.shadow ? specOf(t, t.shadow) : ''} -f record=${Boolean(t.record)} -f style=${Boolean(t.style)} -f shard_total=${total} -f shards=${shards.join(',')}`);
+      for (const t of cfg.tables) console.log(`gh workflow run play-shards.yml -f game_commit=${cfg.game.commit} -f table=${t.name} -f cpu_a="${specOf(t, t.a)}" -f cpu_b="${specOf(t, t.b)}" -f seeds=${t.seeds} -f swap=${Boolean(t.swap)} -f shadow=${t.shadow ? specOf(t, t.shadow) : ''} -f record=${Boolean(t.record)} -f style=${Boolean(t.style)} -f decks=${t.decks ?? ''} -f shard_total=${total} -f shards=${shards.join(',')}`);
     } else if (site === 'colab') {
       console.log('(notebooks/szb_shard.ipynb: set these in the first cell, run the cells; the same cell again continues a stopped shard)');
-      for (const t of cfg.tables) console.log(`NAME="${t.name}"  CPU_A="${t.a}" CPU_B="${t.b}" PERSONA="${t.persona ?? ''}" STYLE=${t.style ? 'True' : 'False'} SEEDS="${t.seeds}" SWAP=${t.swap ? 'True' : 'False'} SHARDS=[${shards.join(', ')}] TOTAL=${total} SHADOW="${t.shadow ?? ''}" RECORD=${t.record ? 'True' : 'False'}`);
+      for (const t of cfg.tables) console.log(`NAME="${t.name}"  CPU_A="${t.a}" CPU_B="${t.b}" PERSONA="${t.persona ?? ''}" DECKS="${t.decks ?? ''}" STYLE=${t.style ? 'True' : 'False'} SEEDS="${t.seeds}" SWAP=${t.swap ? 'True' : 'False'} SHARDS=[${shards.join(', ')}] TOTAL=${total} SHADOW="${t.shadow ?? ''}" RECORD=${t.record ? 'True' : 'False'}`);
     }
     console.log('');
   }
