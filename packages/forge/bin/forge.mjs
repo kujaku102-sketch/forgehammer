@@ -3,7 +3,7 @@
 // forge hammer <ore...> --out weights.json [options]   learn one weight vector
 // forge smith weights.json --out <file.mjs> --name <name>   write the CPU module
 // forge ore merge <ore...> --out <dir> [--expect jobs.txt]  put records together (checks headers, hashes, duplicates, and what a table expects)
-// forge audit build <text-logs...> --out <dir> [--marks marks.jsonl]   a static report (open index.html) to read the decisions and mark them (adopt / reject / hold)
+// forge audit build <text-logs...> --out <dir> [--marks marks.jsonl] [--open-diff]   a static report (open index.html) to read the decisions and mark them (adopt / reject / hold)
 // forge audit apply <marks.jsonl...> --text <text-logs...> --out marks.jsonl   check the exported marks against the logs and put them together
 // forge bundle pack <dir> --kind ore|weights|eval|report [--round n] [--meta meta.json] | forge bundle verify <dir>   a stage's result as a bundle with hashes
 //
@@ -52,7 +52,7 @@ if (isGroup) {
     if (result.missing.length || result.extra.length) { console.log(`missing from the table: ${result.missing.length} (${result.missing.slice(0, 5).join(', ')}); not in the table: ${result.extra.length}`); process.exit(1); }
   } else if (command === 'audit' && sub === 'build') {
     if (typeof parsed.args.out !== 'string') throw new Error('--out <dir>');
-    const result = buildAudit(parsed.pos, parsed.args.out, { marks: typeof parsed.args.marks === 'string' ? loadMarks(parsed.args.marks) : null });
+    const result = buildAudit(parsed.pos, parsed.args.out, { marks: typeof parsed.args.marks === 'string' ? loadMarks(parsed.args.marks) : null, open: parsed.args['open-diff'] ? { all: true, diff: true } : null });
     console.log(`audit report: ${result.matches} matches, ${result.decisions} decisions -> ${path.join(parsed.args.out, 'index.html')}`);
   } else if (command === 'audit' && sub === 'apply') {
     if (typeof parsed.args.out !== 'string' || typeof parsed.args.text !== 'string') throw new Error('--text <text-logs> --out marks.jsonl');

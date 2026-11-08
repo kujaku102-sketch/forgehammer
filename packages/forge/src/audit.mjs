@@ -72,7 +72,8 @@ export function applyMarks(files, textDirs, outFile) {
 const safe = (s) => String(s).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80);
 const js = (name, value) => `window.${name} = ${JSON.stringify(value).replace(/</g, '\\u003c')};\n`;
 
-export function buildAudit(textDirs, outDir, { marks = null } = {}) {
+// open: { diff: true, all: true } the page opens with those filters on (only the disagreements, all matches in one list) and the first decision shown
+export function buildAudit(textDirs, outDir, { marks = null, open = null } = {}) {
   const { header, matches } = readTextLogs(textDirs);
   mkdirSync(path.join(outDir, 'data'), { recursive: true });
   const decks = new Set(); const types = new Set(); const rows = [];
@@ -96,7 +97,7 @@ export function buildAudit(textDirs, outDir, { marks = null } = {}) {
     writeFileSync(path.join(outDir, 'data', file), `window.AUDIT_MATCH = window.AUDIT_MATCH || {};\nwindow.AUDIT_MATCH[${JSON.stringify(job)}] = ${JSON.stringify(out).replace(/</g, '\\u003c')};\n`);
     rows.push({ job, file, decks: match.decks, outcome: match.outcome, firstSeat: match.firstSeat, turns: match.turns, n: decisions.length, disagree, invalid });
   }
-  writeFileSync(path.join(outDir, 'data', 'index.js'), js('AUDIT_INDEX', { promptVersion: header.promptVersion, game: header.game, rules: header.rules, cpus: header.cpus, system: header.system, decks: [...decks].sort(), types: [...types].sort(), models: header.models ?? null, matches: rows, reportId: createHash('sha256').update(JSON.stringify(rows.map((r) => [r.job, r.n]))).digest('hex').slice(0, 12) }));
+  writeFileSync(path.join(outDir, 'data', 'index.js'), js('AUDIT_INDEX', { promptVersion: header.promptVersion, game: header.game, rules: header.rules, cpus: header.cpus, system: header.system, decks: [...decks].sort(), types: [...types].sort(), models: header.models ?? null, open, matches: rows, reportId: createHash('sha256').update(JSON.stringify(rows.map((r) => [r.job, r.n]))).digest('hex').slice(0, 12) }));
   writeFileSync(path.join(outDir, 'data', 'marks.js'), js('AUDIT_MARKS', marks ? [...marks.values()] : []));
   writeFileSync(path.join(outDir, 'index.html'), PAGE);
   return { matches: rows.length, decisions: rows.reduce((s, r) => s + r.n, 0) };
@@ -225,7 +226,10 @@ $('export').onclick = () => {
   a.download = 'marks-' + (($('who').value || 'anon').replace(/[^A-Za-z0-9_-]/g, '_')) + '-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.jsonl'; a.click();
 };
 $('import').onchange = (e) => { const f = e.target.files[0]; if (!f) return; f.text().then((t) => { for (const line of t.split('\\n')) { if (!line.trim()) continue; try { const m = JSON.parse(line); if (m.decisionId && m.status) marks.set(m.decisionId, m); } catch {} } save(); renderDecisions(); renderDetail(); }); };
-renderMatches();
+if (IDX.open) {
+  if (IDX.open.all) $('fAll').checked = true; if (IDX.open.diff) $('fDiff').checked = true; if (IDX.open.invalid) $('fInvalid').checked = true;
+  renderMatches(); renderDecisions(); setTimeout(() => { if (shown.length) { curIdx = 0; renderDecisions(); renderDetail(); } }, 300);
+} else renderMatches();
 })();
 </script></body></html>
 `;
