@@ -14,6 +14,8 @@ const gunzip = (buffer) => {
   }
 };
 
+const keyOf = (job, shadow) => (shadow ? `${job}|${shadow}` : job);
+
 export function oreFiles(inputs) {
   const files = [];
   for (const input of inputs) {
@@ -34,7 +36,7 @@ export function readOre(inputs, { keepRaw = false } = {}) {
   const drop = (reason, lines) => { dropped.blocks += 1; dropped.lines += lines; dropped.reasons[reason] = (dropped.reasons[reason] ?? 0) + 1; };
   for (const file of files) {
     const text = gunzip(readFileSync(file));
-    let block = []; let rawLines = [];
+    let block = []; let rawLines = []; let shadow = '';
     for (const line of text.split('\n')) {
       if (!line) continue;
       let row;
@@ -44,19 +46,20 @@ export function readOre(inputs, { keepRaw = false } = {}) {
           throw new Error(`${file}: the header differs from the first one (schema ${row.schema} / feature version ${row.featureVersion}); do not mix these records`);
         }
         header ??= row;
+        shadow = row.shadow ?? '';     // the same match can be in two records made by different teachers (the lookahead's labels, a language model's): they are kept apart by who looked
         continue;
       }
       if (row.match === true) {
         const hash = createHash('sha256').update(rawLines.join('\n')).digest('hex');
         if (row.decisions !== block.length) drop('count-mismatch', block.length + 1);
         else if (row.sha256 !== hash) drop('hash-mismatch', block.length + 1);
-        else if (matches.has(row.job)) {
+        else if (matches.has(keyOf(row.job, shadow))) {
           // the same match twice (a resumed run, or two shards that overlap): the same content is counted once, different content means the two were not made alike
-          if (matches.get(row.job).sha256 !== row.sha256) throw new Error(`${file}: match ${row.job} appears twice with different content (not made under the same conditions)`);
+          if (matches.get(keyOf(row.job, shadow)).sha256 !== row.sha256) throw new Error(`${file}: match ${row.job} appears twice with different content (not made under the same conditions)`);
           dropped.duplicates = (dropped.duplicates ?? 0) + 1;
         } else {
           for (const decision of block) { decision.match = row; decisions.push(decision); }
-          matches.set(row.job, keepRaw ? { ...row, raw: [...rawLines] } : row);
+          matches.set(keyOf(row.job, shadow), keepRaw ? { ...row, raw: [...rawLines] } : row);
         }
         block = []; rawLines = [];
         continue;
