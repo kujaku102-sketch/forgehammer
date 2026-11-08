@@ -8,7 +8,9 @@
 const EXTRA_ROWS = ['afford', 'cost_frac', 'is_ob', 'is_sp', 'lethal', 'kills', 'dies', 'dest_front', 'tgt_foe'];
 export const PRESETS = {
   types: (featureNames) => featureNames.filter((n) => n.startsWith('type_')),
-  'types+': (featureNames) => [...featureNames.filter((n) => n.startsWith('type_')), ...EXTRA_ROWS.filter((n) => featureNames.includes(n))]
+  'types+': (featureNames) => [...featureNames.filter((n) => n.startsWith('type_')), ...EXTRA_ROWS.filter((n) => featureNames.includes(n))],
+  // + what the card's text does (fx_*, not the ones for the front or back: those are products already)
+  fx: (featureNames) => [...PRESETS['types+'](featureNames), ...featureNames.filter((n) => n.startsWith('fx_') && !n.endsWith('_front') && !n.endsWith('_back'))]
 };
 
 export function crossSpec(featureNames, stateNames, preset = 'types+') {
