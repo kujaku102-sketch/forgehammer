@@ -108,7 +108,7 @@ Windows コマンドプロンプト上で火花を散らす 24-bit TrueColor ANS
 ## 4. 自作ゲーム・実環境への組み込みガイド
 
 あなたの自作ゲーム（HTML/JS/Canvas/カードゲーム）を接続する手順です。
-書き換えるファイルは **[legacy/ore-swarm/src/mock_game.js](file:///C:/Users/Masaya.Futamata/Documents/forgehammer/legacy/ore-swarm/src/mock_game.js) のみ** です。
+書き換えるファイルは **[legacy/ore-swarm/src/mock_game.js](../legacy/ore-swarm/src/mock_game.js) のみ** です。
 
 ### 手順 1: 特徴量ベクトル（Features）の設計
 ゲームの状態を固定長（例: 8次元）の `Float32Array` に正規化します。

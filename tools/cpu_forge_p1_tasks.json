@@ -1,5 +1,5 @@
 {
-  "project_root": "C:/Users/Masaya.Futamata/Documents/Tusk_architecture",
+  "project_root": "../Tusk_architecture",
   "backend": "gemini-batch",
   "model": "gemini-3.8-flash",
   "verify_cmd": "echo [VERIFY] Batch code generation complete",

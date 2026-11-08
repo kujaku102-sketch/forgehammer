@@ -25,6 +25,8 @@ node packages/forge/bin/forge.mjs smith   weights.json --out <cpus/forged-名前
 - 記録を書く側と、特徴 φ を作る関数は、ゲームの対戦機（SZbattlefield）の側にある（`src/ore.mjs`、`cpus/learned/features.mjs`）。学習時と実行時で同じ関数を使う。
 - 特徴はその席から見える情報だけ。カード名・番号では決め打ちしない。
 
+- 道具の置き場所の指定は、リポジトリの中の相対か引数にした: `tools/cpu_forge_p1_tasks.json` の `project_root` はこのリポジトリの隣の `../Tusk_architecture`（このリポジトリの根からの相対）、`tools/rasterizer/rasterize.ps1` は画像 `-ImagePath` を必ず渡し、出力 `-OutputPath` の既定はこのスクリプトの隣の `output_logo.ans`。
+
 下の「4大構成要素」（固定8特徴×4手の試作）は旧版。`legacy/ore-swarm`（mock_game.js を含む）と `crates/*` は、そのまま残してある。
 
 ---

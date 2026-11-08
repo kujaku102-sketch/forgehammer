@@ -1,7 +1,7 @@
 param (
-    [string]$ImagePath = "C:/Users/Masaya.Futamata/.gemini/antigravity/brain/27f3b6d1-4c51-43ed-a78f-e53450eb7bc6/.user_uploaded/media_1792722526853_fe651d96.png",
+    [Parameter(Mandatory = $true)][string]$ImagePath,
     [int]$Columns = 96,
-    [string]$OutputPath = "C:/Users/Masaya.Futamata/Documents/forgehammer/tools/rasterizer/output_logo.ans"
+    [string]$OutputPath = (Join-Path $PSScriptRoot "output_logo.ans")
 )
 
 Add-Type -AssemblyName System.Drawing
