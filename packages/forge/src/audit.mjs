@@ -83,8 +83,10 @@ export function buildAudit(textDirs, outDir, { marks = null } = {}) {
     let disagree = 0; let invalid = 0;
     const out = decisions.map((d) => {
       const a = d.answers ?? {}; const t = a.teacher?.n ?? null; const s = a.student?.n ?? null; const l = a.llm?.n ?? null;
-      const differs = (s !== null && t !== null && s !== t) || (l !== null && t !== null && l !== t);
-      const bad = Boolean(a.llm?.error);
+      const models = Object.entries(a.llms ?? {}).filter(([, m]) => m && !m.error && m.n);
+      const ns = models.map(([, m]) => m.n);
+      const differs = (s !== null && t !== null && s !== t) || (l !== null && t !== null && l !== t) || ns.some((n) => t !== null && n !== t) || new Set(ns).size > 1;
+      const bad = Boolean(a.llm?.error) || Object.values(a.llms ?? {}).some((m) => m?.error);
       if (differs) disagree += 1; if (bad) invalid += 1;
       const chosen = d.candidates[(t ?? l ?? 1) - 1]?.label ?? '';
       const type = chosen.split(':')[0].trim() || 'その他'; types.add(type);
@@ -94,7 +96,7 @@ export function buildAudit(textDirs, outDir, { marks = null } = {}) {
     writeFileSync(path.join(outDir, 'data', file), `window.AUDIT_MATCH = window.AUDIT_MATCH || {};\nwindow.AUDIT_MATCH[${JSON.stringify(job)}] = ${JSON.stringify(out).replace(/</g, '\\u003c')};\n`);
     rows.push({ job, file, decks: match.decks, outcome: match.outcome, firstSeat: match.firstSeat, turns: match.turns, n: decisions.length, disagree, invalid });
   }
-  writeFileSync(path.join(outDir, 'data', 'index.js'), js('AUDIT_INDEX', { promptVersion: header.promptVersion, game: header.game, rules: header.rules, cpus: header.cpus, system: header.system, decks: [...decks].sort(), types: [...types].sort(), matches: rows, reportId: createHash('sha256').update(JSON.stringify(rows.map((r) => [r.job, r.n]))).digest('hex').slice(0, 12) }));
+  writeFileSync(path.join(outDir, 'data', 'index.js'), js('AUDIT_INDEX', { promptVersion: header.promptVersion, game: header.game, rules: header.rules, cpus: header.cpus, system: header.system, decks: [...decks].sort(), types: [...types].sort(), models: header.models ?? null, matches: rows, reportId: createHash('sha256').update(JSON.stringify(rows.map((r) => [r.job, r.n]))).digest('hex').slice(0, 12) }));
   writeFileSync(path.join(outDir, 'data', 'marks.js'), js('AUDIT_MARKS', marks ? [...marks.values()] : []));
   writeFileSync(path.join(outDir, 'index.html'), PAGE);
   return { matches: rows.length, decisions: rows.reduce((s, r) => s + r.n, 0) };
@@ -122,7 +124,7 @@ table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--li
 </style></head><body>
 <header>
 <strong>Audit</strong><span id="info"></span>
-<label><input type="checkbox" id="fDiff">食い違い</label><label><input type="checkbox" id="fInvalid">無効</label><label><input type="checkbox" id="fLost">負けた試合</label>
+<label><input type="checkbox" id="fAll">全試合まとめて</label><label><input type="checkbox" id="fDiff">食い違い</label><label><input type="checkbox" id="fInvalid">無効</label><label><input type="checkbox" id="fLost">負けた試合</label>
 <label>デッキ <select id="fDeck"><option value="">すべて</option></select></label><label>手 <select id="fType"><option value="">すべて</option></select></label>
 <label>印 <select id="fMark"><option value="">すべて</option><option value="none">未</option><option value="adopt">採用</option><option value="reject">却下</option><option value="hold">保留</option></select></label>
 <label><input id="fText" placeholder="検索(カード名・理由)" size="16"></label><label>名前 <input id="who" size="8"></label>
@@ -152,6 +154,9 @@ function load(job, cb) {
   const s = document.createElement('script'); s.src = 'data/' + row.file; s.onload = () => { loaded[job] = true; cb(); }; document.body.appendChild(s);
 }
 const mark = (d) => marks.get(d.id)?.status || '';
+const modelNames = (d) => Object.keys(d.answers.llms || {});
+function loadAll(cb) { const todo = IDX.matches.filter((m) => !loaded[m.job]); if (!todo.length) return cb(); let left = todo.length; todo.forEach((m) => load(m.job, () => { left -= 1; if (left === 0) cb(); })); }
+function everything() { return IDX.matches.flatMap((m) => (window.AUDIT_MATCH[m.job] || [])); }
 function renderMatches() {
   const box = $('matches'); box.textContent = '';
   const lostOnly = $('fLost').checked; const deck = $('fDeck').value;
@@ -170,14 +175,16 @@ function renderMatches() {
 function renderDecisions() {
   const box = $('decisions'); box.textContent = '';
   const f = { diff: $('fDiff').checked, inv: $('fInvalid').checked, lost: $('fLost').checked, type: $('fType').value, mark: $('fMark').value, text: $('fText').value.trim() };
-  shown = cur.filter((d) => (!f.diff || d.differs) && (!f.inv || d.invalid) && (!f.lost || d.won === false) && (!f.type || d.type === f.type)
+  const all = $('fAll').checked;
+  if (all && !IDX.matches.every((m) => loaded[m.job])) { box.textContent = '読み込み中...'; loadAll(renderDecisions); return; }
+  shown = (all ? everything() : cur).filter((d) => (!f.diff || d.differs) && (!f.inv || d.invalid) && (!f.lost || d.won === false) && (!f.type || d.type === f.type)
     && (!f.mark || (f.mark === 'none' ? !mark(d) : mark(d) === f.mark))
     && (!f.text || (d.prompt + JSON.stringify(d.answers) + d.candidates.map((c) => c.label).join(' ')).includes(f.text)));
   shown.forEach((d, i) => {
     const div = document.createElement('div'); div.className = 'item' + (i === curIdx ? ' sel' : '');
     const m = mark(d); const t = d.answers.teacher?.n; const s = d.answers.student?.n; const l = d.answers.llm?.n;
-    div.textContent = 'T' + d.turn + ' ' + d.seat.replace('seat-', '') + ' r' + d.rev + ' ・ ' + d.type;
-    const small = document.createElement('small'); small.textContent = ' 先生' + (t ?? '-') + (s !== undefined ? ' 学習' + (s ?? '-') : '') + (l !== undefined ? ' LLM' + (l ?? '-') : '');
+    div.textContent = (all ? d.id.split('|')[0].split('/').slice(-3).join('/') + ' ' : '') + 'T' + d.turn + ' ' + d.seat.replace('seat-', '') + ' r' + d.rev + ' ・ ' + d.type;
+    const small = document.createElement('small'); small.textContent = ' 先生' + (t ?? '-') + (s !== undefined ? ' 学習' + (s ?? '-') : '') + (l !== undefined ? ' LLM' + (l ?? '-') : '') + modelNames(d).map((k) => ' ' + k + (d.answers.llms[k].n ?? '×')).join('');
     div.appendChild(small);
     if (d.differs) { const x = document.createElement('span'); x.className = 'tag'; x.textContent = '食い違い'; div.appendChild(x); }
     if (d.invalid) { const x = document.createElement('span'); x.className = 'tag'; x.textContent = '無効'; div.appendChild(x); }
@@ -191,14 +198,15 @@ function renderDetail() {
   if (!d) { box.textContent = '判断を選んでください。'; return; }
   const h = document.createElement('div'); h.className = 'who'; h.textContent = d.id + (d.won === null ? '' : d.won ? '  (この席は勝った試合)' : '  (この席は負けた試合)'); box.appendChild(h);
   const pre = document.createElement('pre'); pre.textContent = d.prompt; box.appendChild(pre);
-  const a = d.answers; const tbl = document.createElement('table'); tbl.innerHTML = '<tr><th>番号</th><th>選択肢</th><th>先生(点数)</th><th>学習CPU</th><th>LLM</th></tr>';
+  const a = d.answers; const tbl = document.createElement('table'); tbl.innerHTML = '<tr><th>番号</th><th>選択肢</th><th>先生(点数)</th><th>学習CPU</th><th>LLM</th>' + modelNames(d).map((k) => '<th>' + k + '</th>').join('') + '</tr>';
   d.candidates.forEach((c, i) => {
     const tr = document.createElement('tr'); if (a.teacher?.n === c.n) tr.className = 't';
-    const cells = [c.n, c.label, (a.teacher?.n === c.n ? '★ ' : '') + (a.teacher?.scores?.[i] ?? ''), a.student?.n === c.n ? '●' : '', a.llm?.n === c.n ? '✔' : ''];
+    const cells = [c.n, c.label, (a.teacher?.n === c.n ? '★ ' : '') + (a.teacher?.scores?.[i] ?? ''), a.student?.n === c.n ? '●' : '', a.llm?.n === c.n ? '✔' : ''].concat(modelNames(d).map((k) => (a.llms[k].n === c.n ? '✔' : '')));
     cells.forEach((x) => { const td = document.createElement('td'); td.textContent = x; tr.appendChild(td); }); tbl.appendChild(tr);
   });
   box.appendChild(tbl);
   const info = document.createElement('div'); info.style.margin = '6px 0'; info.textContent = '先生: ' + (a.teacher?.baseline ? 'ゲームのCPUに任せた手' : a.teacher?.n ?? '-') + ' (' + (a.teacher?.why || '') + ')' + (a.llm?.reason ? '  LLMの理由: ' + a.llm.reason : '') + (a.llm?.error ? '  LLMのエラー: ' + a.llm.error.kind : ''); box.appendChild(info);
+  for (const k of modelNames(d)) { const m = a.llms[k]; const line = document.createElement('div'); line.style.margin = '4px 0'; line.textContent = k + ': ' + (m.error ? 'エラー ' + m.error.kind : '選択 ' + m.n) + (m.reason ? ' ・ 理由: ' + m.reason : '') + (m.usd ? ' ・ $' + m.usd.toFixed(5) : ''); box.appendChild(line); }
   const note = document.createElement('input'); note.placeholder = 'メモ'; note.size = 40; note.value = marks.get(d.id)?.note || '';
   const set = (status) => { marks.set(d.id, { decisionId: d.id, status, by: $('who').value || '(名前なし)', at: new Date().toISOString(), note: note.value }); save(); renderDecisions(); renderDetail(); };
   for (const [s, label] of [['adopt', '採用 (a)'], ['reject', '却下 (r)'], ['hold', '保留 (h)']]) { const b = document.createElement('button'); b.textContent = label; if (mark(d) === s) b.className = 'on'; b.onclick = () => set(s); b.style.marginRight = '6px'; box.appendChild(b); }
@@ -210,7 +218,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'j') step(1); else if (e.key === 'k') step(-1);
   else if (shown[curIdx] && ['a', 'r', 'h'].includes(e.key)) { const status = { a: 'adopt', r: 'reject', h: 'hold' }[e.key]; const d = shown[curIdx]; marks.set(d.id, { decisionId: d.id, status, by: $('who').value || '(名前なし)', at: new Date().toISOString(), note: marks.get(d.id)?.note || '' }); save(); renderDecisions(); renderDetail(); }
 });
-for (const id of ['fDiff', 'fInvalid', 'fLost', 'fDeck', 'fType', 'fMark', 'fText']) $(id).addEventListener('input', () => { curIdx = -1; renderMatches(); renderDecisions(); renderDetail(); });
+for (const id of ['fAll', 'fDiff', 'fInvalid', 'fLost', 'fDeck', 'fType', 'fMark', 'fText']) $(id).addEventListener('input', () => { curIdx = -1; renderMatches(); renderDecisions(); renderDetail(); });
 $('export').onclick = () => {
   const lines = [...marks.values()].map((m) => JSON.stringify(m)).join('\\n') + '\\n';
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines], { type: 'text/plain' }));
