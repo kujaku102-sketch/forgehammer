@@ -134,6 +134,9 @@ if (isGroup) {
   if (sourceWeights) for (const d of finishedOnly) d.sourceWeight = sourceWeights[d.src ?? 'lookahead'] ?? 1;
   for (const d of finishedOnly) if (d.pinned !== undefined) d.sourceWeight = d.pinned;
   let ds = buildDataset(finishedOnly, ore.header, { why: args.why ?? 'all' });
+  // The dataset is flat typed arrays now; the parsed decisions (every candidate a list of [index, value] pairs: 3 GB and more for 1.5 million candidates) are not needed again.
+  // Let go of them before learning starts: with them kept, a round of 3,500 matches ran out of the node heap (about 3.4 GB) in the training (loop-round run 42678798741).
+  finishedOnly = []; pinned.clear(); ore.decisions = [];
   let cross = null;
   if (typeof args.cross === 'string') {
     if ((args.method ?? 'softmax') === 'staged') throw new Error('--cross is for the flat CPU');
