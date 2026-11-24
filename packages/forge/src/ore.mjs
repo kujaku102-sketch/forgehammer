@@ -1,9 +1,10 @@
 // Reading ore: the decisions a teacher CPU made, written by SZbattlefield (docs/ORE-FORMAT.md). Checks as it reads:
 // a block of decisions counts only if its closing "match" line is there, the count is right and the hash agrees; anything else is dropped
 // and counted, never half-used.
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { constants, gunzipSync } from 'node:zlib';
+import { pipeline } from 'node:stream';
+import { constants, createGunzip, gunzipSync } from 'node:zlib';
 import path from 'node:path';
 
 const gunzip = (buffer) => {
@@ -23,6 +24,25 @@ export function oreFiles(inputs) {
     else files.push(input);
   }
   return files;
+}
+
+// The non-empty lines of one ore file, one at a time, read as a stream: the file is never held whole, neither packed nor unpacked.
+// A file cut in the middle of its last gzip member gives what was complete before the cut (the same as the fallback in `gunzip` above).
+// A file that is really broken makes the loop that reads it throw.
+export async function* oreLines(file) {
+  const text = pipeline(createReadStream(file), createGunzip({ finishFlush: constants.Z_SYNC_FLUSH }), () => {});
+  text.setEncoding('utf8');
+  let rest = '';
+  for await (const chunk of text) {
+    rest += chunk;
+    let start = 0; let at = rest.indexOf('\n');
+    while (at !== -1) {
+      if (at > start) yield rest.slice(start, at);
+      start = at + 1; at = rest.indexOf('\n', start);
+    }
+    rest = rest.slice(start);
+  }
+  if (rest) yield rest;
 }
 
 // Returns { header, decisions: [...], matches: Map(job -> match line), dropped: { blocks, lines, reasons } }.
